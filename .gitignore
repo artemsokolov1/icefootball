@@ -1,0 +1,17 @@
+# Unreal generated
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+*.sln
+*.VC.db
+*.opensdf
+*.sdf
+*.suo
+.vscode/
+.idea/
+
+# Standalone core test runner build output
+Tools/SkateSim/skatesim
+Tools/SkateSim/out/

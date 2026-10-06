@@ -1,0 +1,496 @@
+// Ice skating prototype - THE single tuning set.
+//
+// Every gameplay number of the prototype lives in FSkateTuning (this file documents
+// defaults = "Balanced" preset). The three switchable presets are built in
+// SkateTuningPresets.cpp from these defaults by overriding a few fields.
+// In the editor the presets are exposed on ASkateCharacter ("Skate|Tuning" category),
+// so they can be tweaked live in PIE without recompiling.
+//
+// Units: centimetres, seconds, degrees, kilograms (1 UU = 1 cm).
+//
+// This header is plain C++ apart from the reflection macros. Tools/SkateSim compiles it
+// with stubbed macros so the movement/contact core can be tested outside Unreal.
+#pragma once
+
+#include "CoreMinimal.h"
+#include "SkateTuning.generated.h"
+
+UENUM(BlueprintType)
+enum class ESkatePreset : uint8
+{
+	Responsive UMETA(DisplayName = "1 - Responsive"),
+	Balanced UMETA(DisplayName = "2 - Balanced"),
+	Inertial UMETA(DisplayName = "3 - Inertial"),
+};
+
+/** Stick / trigger shaping. */
+USTRUCT(BlueprintType)
+struct FSkateInputTuning
+{
+	GENERATED_BODY()
+
+	/** Radial inner dead zone of the left stick (fraction of full deflection). Below it the stick reads exactly zero. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0", ClampMax = "0.5"))
+	float StickDeadZoneInner = 0.15f;
+
+	/** Deflection treated as full (compensates sticks that never reach 1.0). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.5", ClampMax = "1"))
+	float StickDeadZoneOuter = 0.95f;
+
+	/** Response curve after the dead zone remap: magnitude^Exponent. 1 = linear, >1 = finer control at small deflection. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.5", ClampMax = "3"))
+	float StickResponseExponent = 1.2f;
+
+	/** Trigger dead zone (LT/RT). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float TriggerDeadZone = 0.04f;
+
+	/** Brake trigger curve: brake = trigger^Exponent. >1 gives finer light braking. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.5", ClampMax = "3"))
+	float BrakeInputExponent = 1.4f;
+
+	/** Keyboard only: stick magnitude while the "slow" key (Left Alt) is held, to test partial stick. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.1", ClampMax = "1"))
+	float KeyboardSlowMagnitude = 0.45f;
+};
+
+/** Skating model (USkateMovementComponent / FSkateModel). */
+USTRUCT(BlueprintType)
+struct FSkateMovementTuning
+{
+	GENERATED_BODY()
+
+	// ---- Thrust ----
+
+	/** Top speed with full stick, no boost (cm/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "100"))
+	float MaxSpeed = 580.f;
+
+	/** Top speed with full stick and full RT (cm/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "100"))
+	float BoostMaxSpeed = 800.f;
+
+	/** Time constant (s) of the speed approach to the stick's target speed. ~3x this is the time to 95% of top speed.
+	 *  Acceleration is highest at the start (fast first response) and fades near the target (smooth top-out). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.05"))
+	float ThrustTimeConstant = 0.34f;
+
+	/** Same as ThrustTimeConstant while boosting (towards BoostMaxSpeed). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.05"))
+	float BoostTimeConstant = 0.42f;
+
+	/** Thrust is only produced when the skates point roughly where the stick asks:
+	 *  thrust scale ramps from 0 at this dot(heading, stick) to 1 at dot = 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "-1", ClampMax = "0.95"))
+	float ThrustAlignMinDot = 0.25f;
+
+	/** Deceleration (cm/s^2) towards the stick's target speed when going faster than it (partial stick after full speed, boost released). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0"))
+	float OverspeedDecel = 170.f;
+
+	// ---- Free glide ----
+
+	/** Constant glide friction (cm/s^2) along the blade when not pushing. Makes the glide end in finite time. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Glide", meta = (ClampMin = "0"))
+	float GlideFriction = 55.f;
+
+	/** Speed-proportional glide drag (1/s) along the blade when not pushing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Glide", meta = (ClampMin = "0"))
+	float GlideDrag = 0.30f;
+
+	/** Below this speed (cm/s), with no thrust, the skater snaps to a full stop (kills micro-sliding). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Glide", meta = (ClampMin = "0", ClampMax = "30"))
+	float StopSnapSpeed = 6.f;
+
+	// ---- Blade grip / turning ----
+
+	/** Lateral grip (1/s): rate at which sideways velocity (across the blades) is removed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "0"))
+	float LateralGrip = 10.f;
+
+	/** Cap on how fast grip can bend the velocity (cm/s^2). At speed v, minimum arc radius = v^2 / this. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "100"))
+	float MaxLateralAccel = 1500.f;
+
+	/** Fraction of the lateral speed removed by grip that is redirected along the blade (carving keeps speed).
+	 *  The rest is scrubbed (skid). Falls off with slip angle, see SkidSlipAngle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "0", ClampMax = "1"))
+	float CarveEfficiency = 0.92f;
+
+	/** Slip angle (deg, between blade and velocity) at which carving stops redirecting speed - pure skid. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "10", ClampMax = "90"))
+	float SkidSlipAngle = 70.f;
+
+	/** Heading turn rate (deg/s) when nearly stopped - compact pivot turns. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "30"))
+	float TurnRateLowSpeed = 720.f;
+
+	/** Heading turn rate (deg/s) at TurnRateSpeedRef and above. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "30"))
+	float TurnRateHighSpeed = 170.f;
+
+	/** Speed (cm/s) at which the turn rate reaches TurnRateHighSpeed (smoothstep blend from 0). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "10"))
+	float TurnRateSpeedRef = 520.f;
+
+	/** With the stick released, the blades slowly align with the travel direction (deg/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "0"))
+	float GlideAlignRate = 90.f;
+
+	// ---- Braking ----
+
+	/** Deceleration (cm/s^2) at full LT. Never reverses the velocity. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0"))
+	float BrakeDecel = 850.f;
+
+	/** Heading turn rate multiplier at full brake (steering while in a hockey stop is reduced). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0", ClampMax = "1"))
+	float BrakeTurnRateScale = 0.4f;
+
+	/** Stick pointing against the travel direction with dot(stick, velocity) below this starts a "reverse stop":
+	 *  the skater first brakes (no instant velocity flip), then accelerates the other way. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "-1", ClampMax = "0"))
+	float ReverseIntentDot = -0.45f;
+
+	/** Reverse stop only triggers above this speed (cm/s); below it the skater simply pivots. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0"))
+	float ReverseMinSpeed = 150.f;
+
+	/** Deceleration (cm/s^2) of a reverse stop at full stick deflection. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0"))
+	float ReverseBrakeDecel = 720.f;
+
+	// ---- Integration ----
+
+	/** Largest internal integration step (s). Smaller = less frame-rate dependence. 1/240 is cheap (pure math). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Integration", meta = (ClampMin = "0.001", ClampMax = "0.0334"))
+	float MaxSubstep = 1.f / 240.f;
+};
+
+/** Skater <-> ball contact: reach zone, dribble touches, push (A), charged kick (X). */
+USTRUCT(BlueprintType)
+struct FSkateBallControlTuning
+{
+	GENERATED_BODY()
+
+	// ---- Reach zone (where a foot can physically reach the ball) ----
+
+	/** Centre of the reach zone in front of the skater (cm, along heading). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Reach", meta = (ClampMin = "0"))
+	float ReachForward = 42.f;
+
+	/** Radius of the reach zone around that centre (cm, ball centre must be inside). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Reach", meta = (ClampMin = "5"))
+	float ReachRadius = 36.f;
+
+	/** Extra radius (cm) allowed for deliberate actions (push / kick). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Reach", meta = (ClampMin = "0"))
+	float ActionReachBonus = 14.f;
+
+	/** Ball must be within this angle (deg) of the heading, seen from the skater centre. Prevents touches behind the back. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Reach", meta = (ClampMin = "10", ClampMax = "180"))
+	float ReachHalfAngle = 80.f;
+
+	/** Max height of the ball's lowest point above the ice (cm) for a ground touch. Higher = airborne, no dribble. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Reach", meta = (ClampMin = "0"))
+	float MaxTouchHeight = 18.f;
+
+	/** Relative speed (cm/s) above which an incoming ball is not controllable (it is body-blocked instead). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Reach", meta = (ClampMin = "0"))
+	float MaxControllableRelSpeed = 1300.f;
+
+	// ---- Dribble touches ----
+
+	/** Min stick magnitude to auto-dribble (otherwise skater must at least glide at DribbleMinSpeedNoStick). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0", ClampMax = "1"))
+	float DribbleMinStick = 0.2f;
+
+	/** Without stick input, gliding faster than this (cm/s) into the ball still touches it on. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0"))
+	float DribbleMinSpeedNoStick = 180.f;
+
+	/** Skater must close in on the ball faster than this (cm/s) for a dribble touch. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0"))
+	float DribbleMinClosingSpeed = 25.f;
+
+	/** Minimum time between two dribble touches (s). Also the minimum gap after any impulse. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0.02"))
+	float TouchCooldown = 0.2f;
+
+	/** Ball speed after a touch = skater speed along the touch * TouchCarry + extra (below). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0", ClampMax = "2"))
+	float TouchCarry = 1.0f;
+
+	/** Extra speed (cm/s) given on top of the skater's speed when slow: ball stays close. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0"))
+	float TouchExtraSpeedSlow = 70.f;
+
+	/** Extra speed (cm/s) given on top of the skater's speed at MaxSpeed: ball is released further ahead.
+	 *  Blend between Slow and Fast is quadratic in (skater speed / MaxSpeed). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0"))
+	float TouchExtraSpeedFast = 300.f;
+
+	/** Touch direction assist: the physical contact direction (foot -> ball) may be bent towards
+	 *  the stick by at most this angle (deg). 0 = pure physical contact direction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Dribble", meta = (ClampMin = "0", ClampMax = "60"))
+	float TouchAssistMaxAngle = 28.f;
+
+	// ---- Body block (ball hitting skater outside the foot zone) ----
+
+	/** Radius (cm) of the skater's body for blocking the ball (the capsule itself ignores the ball). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Body", meta = (ClampMin = "5"))
+	float BodyRadius = 30.f;
+
+	/** Restitution of a ball bouncing off the skater's body/legs. Low = legs absorb. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Body", meta = (ClampMin = "0", ClampMax = "1"))
+	float BodyRestitution = 0.25f;
+
+	// ---- Push (A) ----
+
+	/** Ball speed of a short push (cm/s) from standstill. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
+	float PushSpeed = 650.f;
+
+	/** Fraction of the skater's speed along the push direction added to the push. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "2"))
+	float PushCarry = 0.6f;
+
+	/** Max angle (deg) between the push direction and the physical contact direction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "90"))
+	float PushMaxDeviation = 45.f;
+
+	/** Pressing A while the ball is not reachable keeps the command alive this long (s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "0.5"))
+	float PushBufferTime = 0.15f;
+
+	// ---- Charged kick (X) ----
+
+	/** Time (s) to reach full kick power while holding X. Charging beyond it does nothing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0.1"))
+	float KickMaxChargeTime = 0.8f;
+
+	/** Ball speed (cm/s) at zero / full charge. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
+	float KickMinSpeed = 1000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
+	float KickMaxSpeed = 2600.f;
+
+	/** Fraction of the skater's speed along the kick direction added to the kick. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "2"))
+	float KickCarry = 0.5f;
+
+	/** Upward speed (cm/s) at full charge: a low shot that hops a little. Ground shots only for now. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
+	float KickLiftAtFullCharge = 160.f;
+
+	/** Max angle (deg) between the kick direction and the physical contact direction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "90"))
+	float KickMaxDeviation = 35.f;
+
+	/** After X is released while the ball is out of reach, the kick waits this long (s) for the ball, then whiffs. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "0.5"))
+	float KickBufferTime = 0.12f;
+
+	/** No dribble touches for this long (s) after a push or kick, so the leaving ball is not re-touched. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
+	float NoTouchAfterAction = 0.35f;
+};
+
+/** Ball rigid body (ASkateBall). */
+USTRUCT(BlueprintType)
+struct FSkateBallPhysicsTuning
+{
+	GENERATED_BODY()
+
+	/** Ball radius (cm). Size 5 football = 11 cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "5"))
+	float Radius = 11.f;
+
+	/** Mass (kg). Size 5 football = 0.43 kg. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0.05"))
+	float MassKg = 0.43f;
+
+	/** Physics linear damping (air drag; applies to all axes). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0"))
+	float LinearDamping = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0"))
+	float AngularDamping = 0.6f;
+
+	/** Rolling resistance on the ice (cm/s^2), applied only while the ball is on the ground. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0"))
+	float RollingResistance = 50.f;
+
+	/** Grounded ball slower than this (cm/s) is stopped (no endless creeping). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0", ClampMax = "20"))
+	float StopSpeed = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0", ClampMax = "1"))
+	float Friction = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0", ClampMax = "1"))
+	float Restitution = 0.6f;
+
+	/** Ice surface friction / restitution (ice physical material). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0", ClampMax = "1"))
+	float IceFriction = 0.03f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0", ClampMax = "1"))
+	float IceRestitution = 0.45f;
+
+	/** Board (wall) restitution. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0", ClampMax = "1"))
+	float BoardRestitution = 0.62f;
+
+	/** Continuous collision detection on the ball only. Max kick ~2600 cm/s moves ~43 cm per 60 FPS frame,
+	 *  about 2x the ball diameter, so without CCD fast shots could tunnel through thin geometry. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics")
+	bool bUseCCD = true;
+};
+
+/** Top-down angled camera (ASkateCameraRig). */
+USTRUCT(BlueprintType)
+struct FSkateCameraTuning
+{
+	GENERATED_BODY()
+
+	/** Fixed camera pitch (deg, negative = looking down). The camera never yaws with the skater. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "-89", ClampMax = "-20"))
+	float Pitch = -56.f;
+
+	/** Fixed camera yaw (deg). Stick "up" = this direction projected onto the ice. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float Yaw = 0.f;
+
+	/** Distance from the focus point (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "300"))
+	float Distance = 1650.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "20", ClampMax = "120"))
+	float FieldOfView = 55.f;
+
+	/** Look-ahead = velocity * this time (s), clamped to MaxLookAhead. Shows the space in front of the skater. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
+	float LookAheadTime = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
+	float MaxLookAhead = 240.f;
+
+	/** Smoothing time (s) of the look-ahead offset only. The skater position itself is followed without lag. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.01"))
+	float LookAheadSmoothTime = 0.5f;
+
+	/** Static diagnostic camera: pitch and distance, looking at the rink centre. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "-89", ClampMax = "-20"))
+	float StaticPitch = -62.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "300"))
+	float StaticDistance = 5200.f;
+};
+
+/** Procedural pose (USkaterPuppetComponent). Visual only, never feeds back into movement. */
+USTRUCT(BlueprintType)
+struct FSkateAnimTuning
+{
+	GENERATED_BODY()
+
+	/** Lean angle (deg) per 1 g of lateral acceleration. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0"))
+	float LeanPerG = 32.f;
+
+	/** Max sideways lean (deg). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0", ClampMax = "45"))
+	float MaxLean = 24.f;
+
+	/** Forward lean while pushing (deg) and backward lean while braking (deg). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0", ClampMax = "30"))
+	float PushForwardLean = 12.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0", ClampMax = "30"))
+	float BrakeBackLean = 12.f;
+
+	/** Lower-body twist in a hockey stop (deg): skates go across the travel direction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0", ClampMax = "100"))
+	float BrakeTwist = 78.f;
+
+	/** Pose smoothing time (s). Short: the pose follows the motion, it must not lag behind it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0.01"))
+	float PoseSmoothTime = 0.07f;
+
+	/** Stride frequency (strokes/s, both legs) at low / top speed while pushing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0.1"))
+	float StrideRateSlow = 1.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0.1"))
+	float StrideRateFast = 2.1f;
+
+	/** Sideways push-out of the stroking skate (cm) at full thrust. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Anim", meta = (ClampMin = "0"))
+	float StrideWidth = 34.f;
+};
+
+/** Sound / trails / spray / rumble (USkateFeedbackComponent). */
+USTRUCT(BlueprintType)
+struct FSkateFeedbackTuning
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0", ClampMax = "2"))
+	float GlideVolume = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0", ClampMax = "2"))
+	float BrakeVolume = 0.8f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0", ClampMax = "2"))
+	float ImpactVolume = 0.9f;
+
+	/** Blade marks: spacing (cm) and lifetime (s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "2"))
+	float TrailSpacing = 9.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0.5"))
+	float TrailLifetime = 7.f;
+
+	/** Ice spray starts when braking+skid deceleration exceeds this (cm/s^2). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0"))
+	float SprayDecelThreshold = 450.f;
+
+	/** Controller rumble on kick (scaled by power) / push / dribble touch. 0 disables. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0", ClampMax = "1"))
+	float KickRumble = 0.55f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0", ClampMax = "1"))
+	float PushRumble = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0", ClampMax = "1"))
+	float TouchRumble = 0.0f;
+};
+
+/** The complete tuning set. One preset = one FSkateTuning. */
+USTRUCT(BlueprintType)
+struct FSkateTuning
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
+	FSkateInputTuning Input;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
+	FSkateMovementTuning Movement;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
+	FSkateBallControlTuning BallControl;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
+	FSkateBallPhysicsTuning BallPhysics;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
+	FSkateCameraTuning Camera;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
+	FSkateAnimTuning Anim;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
+	FSkateFeedbackTuning Feedback;
+};
