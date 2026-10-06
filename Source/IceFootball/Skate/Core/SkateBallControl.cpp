@@ -19,7 +19,7 @@ const char* SkateContactReasonName(ESkateContactReason Reason)
 	case ESkateContactReason::TooFar: return "Too far";
 	case ESkateContactReason::OutsideAngle: return "Beside/behind skater";
 	case ESkateContactReason::Airborne: return "Ball airborne";
-	case ESkateContactReason::BlockedByBoard: return "Blocked by wall";
+	case ESkateContactReason::BlockedByBoard: return "Blocked (wall/obstacle)";
 	case ESkateContactReason::TooFast: return "Ball too fast";
 	}
 	return "?";

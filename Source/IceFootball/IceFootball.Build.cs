@@ -18,6 +18,7 @@ public class IceFootball : ModuleRules
 			"EnhancedInput",
 			"PhysicsCore",   // UPhysicalMaterial
 			"AudioMixer",    // USynthComponent (procedural ice sounds, no audio assets needed)
+			"SignalProcessing",
 		});
 	}
 }

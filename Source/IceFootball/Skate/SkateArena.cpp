@@ -196,8 +196,8 @@ void ASkateArena::AddMarkRing(const FVector2D& Center, float Radius, float Width
 {
 	for (int32 Index = 0; Index < Segments; ++Index)
 	{
-		const float A0 = 2.f * PI * Index / Segments;
-		const float A1 = 2.f * PI * (Index + 1) / Segments;
+		const float A0 = 2.f * UE_PI * Index / Segments;
+		const float A1 = 2.f * UE_PI * (Index + 1) / Segments;
 		const FVector2D P0 = Center + FVector2D(FMath::Cos(A0), FMath::Sin(A0)) * Radius;
 		const FVector2D P1 = Center + FVector2D(FMath::Cos(A1), FMath::Sin(A1)) * Radius;
 		// Slightly longer than the chord so segments overlap without gaps.

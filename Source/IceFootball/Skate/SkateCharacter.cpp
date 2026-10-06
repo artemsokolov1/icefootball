@@ -52,16 +52,18 @@ ASkateCharacter::ASkateCharacter(const FObjectInitializer& ObjectInitializer)
 
 void ASkateCharacter::BeginPlay()
 {
+	// Before Super::BeginPlay(): it dispatches the components' BeginPlay, and the feedback
+	// component starts the synth there.
+	if (Feedback)
+	{
+		Feedback->SetSynth(IceSynth);
+	}
 	Super::BeginPlay();
 
 	// Ball contact must see this frame's movement result: tick after the movement component.
 	if (BallControl && SkateMovement)
 	{
 		BallControl->PrimaryComponentTick.AddPrerequisite(SkateMovement, SkateMovement->PrimaryComponentTick);
-	}
-	if (Feedback)
-	{
-		Feedback->SetSynth(IceSynth);
 	}
 	SkateMovement->ResetSkating(GetActorForwardVector());
 	ApplyActiveTuning();

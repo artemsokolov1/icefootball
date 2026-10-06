@@ -43,7 +43,8 @@ ASkateBall::ASkateBall()
 	BallMesh->SetCanEverAffectNavigation(false);
 
 	// Two thin bands make the spin readable.
-	auto MakeStripe = [this, &CylinderMesh](const TCHAR* Name, const FRotator& Rotation)
+	// CylinderMesh is a static local: used directly, it cannot (and need not) be captured.
+	auto MakeStripe = [this](const TCHAR* Name, const FRotator& Rotation)
 	{
 		UStaticMeshComponent* Stripe = CreateDefaultSubobject<UStaticMeshComponent>(Name);
 		Stripe->SetupAttachment(BallMesh);

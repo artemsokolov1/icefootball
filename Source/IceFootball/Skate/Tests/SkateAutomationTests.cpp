@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Skate/Tests/SkateCoreTests.h"
+#include "Skate/Tests/SkateCourseTests.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -12,7 +13,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSkateCoreScenarioTest, "IceFootball.Skate.Core
 
 bool FSkateCoreScenarioTest::RunTest(const FString& Parameters)
 {
-	const std::vector<FSkateTestResult> Results = RunSkateCoreTests();
+	std::vector<FSkateTestResult> Results = RunSkateCoreTests();
+	RunSkateCourseTests(Results);
 	for (const FSkateTestResult& Result : Results)
 	{
 		const FString Message = FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.Name.c_str()), UTF8_TO_TCHAR(Result.Details.c_str()));

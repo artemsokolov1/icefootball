@@ -9,7 +9,8 @@ USkateMovementComponent::USkateMovementComponent()
 	// The ball must not be pushed by capsule sweeps (no second, physics-driven impulse).
 	bEnablePhysicsInteraction = false;
 
-	// Small CMC sub-steps keep collision response consistent at 30 FPS; the skate model
+	// Small CMC sub-steps keep collision response consistent at 30 FPS (note: below the Details-panel
+	// ClampMin of 0.0166, which only applies to editor edits); the skate model
 	// sub-steps further internally (FSkateMovementTuning::MaxSubstep).
 	MaxSimulationTimeStep = 1.f / 120.f;
 	MaxSimulationIterations = 8;

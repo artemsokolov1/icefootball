@@ -4,7 +4,7 @@ namespace SkateAudioDetail
 {
 	inline float OnePole(float Cutoff, float SampleRate)
 	{
-		return 1.f - FMath::Exp(-2.f * PI * Cutoff / SampleRate);
+		return 1.f - FMath::Exp(-2.f * UE_PI * Cutoff / SampleRate);
 	}
 
 	inline float SoftClip(float X)
@@ -65,7 +65,7 @@ int32 USkateIceSynth::OnGenerateAudio(float* OutAudio, int32 NumSamples)
 	const float ATexture = OnePole(9.f, Rate);
 	const float ImpactDecay = FMath::Exp(-1.f / (0.07f * Rate));
 	const float ClickDecay = FMath::Exp(-1.f / (0.006f * Rate));
-	const float PhaseStep = 2.f * PI / Rate;
+	const float PhaseStep = 2.f * UE_PI / Rate;
 
 	for (int32 Index = 0; Index < NumSamples; ++Index)
 	{
@@ -99,9 +99,9 @@ int32 USkateIceSynth::OnGenerateAudio(float* OutAudio, int32 NumSamples)
 		const float Mix = GlideSig * Glide * 0.9f + BrakeSig * Brake * 1.1f + Thump * 0.8f + Click * 0.35f;
 		OutAudio[Index] = SoftClip(Mix) * 0.7f;
 	}
-	if (ImpactPhase > 2.f * PI * 1000.f)
+	if (ImpactPhase > 2.f * UE_PI * 1000.f)
 	{
-		ImpactPhase = FMath::Fmod(ImpactPhase, 2.f * PI);
+		ImpactPhase = FMath::Fmod(ImpactPhase, 2.f * UE_PI);
 	}
 	return NumSamples;
 }

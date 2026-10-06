@@ -140,8 +140,8 @@ void ASkateDebugHUD::DrawStickWidget(ASkateCharacter* Skater, float X, float Y, 
 		constexpr int32 Segments = 32;
 		for (int32 Index = 0; Index < Segments; ++Index)
 		{
-			const float A0 = 2.f * PI * Index / Segments;
-			const float A1 = 2.f * PI * (Index + 1) / Segments;
+			const float A0 = 2.f * UE_PI * Index / Segments;
+			const float A1 = 2.f * UE_PI * (Index + 1) / Segments;
 			DrawLine(X + R * FMath::Cos(A0), Y + R * FMath::Sin(A0), X + R * FMath::Cos(A1), Y + R * FMath::Sin(A1), Color, 1.f);
 		}
 	};

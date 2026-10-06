@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 
+class AActor;
 class UStaticMesh;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;

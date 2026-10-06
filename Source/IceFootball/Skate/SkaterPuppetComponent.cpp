@@ -208,23 +208,23 @@ void USkaterPuppetComponent::UpdatePose(float Dt)
 				const float U = T / KickSwingTime;
 				const float Forward = U < 0.3f ? FMath::InterpEaseOut(0.f, 1.f, U / 0.3f, 2.f) : 1.f - FMath::SmoothStep(0.f, 1.f, (U - 0.3f) / 0.7f);
 				SwingX = FMath::Lerp(-38.f * Ball->GetLastSwingPower(), 55.f, Forward) * (U < 0.3f ? 1.f : Forward);
-				SwingLift = 16.f * FMath::Sin(PI * U);
+				SwingLift = 16.f * FMath::Sin(UE_PI * U);
 			}
 			break;
 		case ESkateImpulseKind::Push:
 			if (T < PushSwingTime)
 			{
 				const float U = T / PushSwingTime;
-				SwingX = 40.f * FMath::Sin(PI * U);
-				SwingLift = 4.f * FMath::Sin(PI * U);
+				SwingX = 40.f * FMath::Sin(UE_PI * U);
+				SwingLift = 4.f * FMath::Sin(UE_PI * U);
 			}
 			break;
 		case ESkateImpulseKind::Touch:
 			if (T < TouchSwingTime)
 			{
 				const float U = T / TouchSwingTime;
-				SwingX = 30.f * FMath::Sin(PI * U);
-				SwingLift = 3.f * FMath::Sin(PI * U);
+				SwingX = 30.f * FMath::Sin(UE_PI * U);
+				SwingLift = 3.f * FMath::Sin(UE_PI * U);
 			}
 			break;
 		default:
@@ -255,8 +255,8 @@ void USkaterPuppetComponent::UpdatePose(float Dt)
 			const float U = (LegPhase - 0.5f) / 0.5f;
 			const float Back = 1.f - FMath::SmoothStep(0.f, 1.f, U);
 			Foot.Y += Sgn * StrideWidth * StrideAmp * Back;
-			Foot.X += -StrideBack * StrideAmp * Back + 10.f * StrideAmp * FMath::Sin(PI * U);
-			Lift = RecoveryLift * StrideAmp * FMath::Sin(PI * U);
+			Foot.X += -StrideBack * StrideAmp * Back + 10.f * StrideAmp * FMath::Sin(UE_PI * U);
+			Lift = RecoveryLift * StrideAmp * FMath::Sin(UE_PI * U);
 			Yaw = Sgn * 30.f * StrideAmp * Back;
 		}
 
@@ -297,7 +297,7 @@ void USkaterPuppetComponent::UpdatePose(float Dt)
 
 		// Arms: swing opposite to the legs, open up for balance when braking or kicking.
 		const FVector Shoulder = Chest - TorsoUp * 4.f + TorsoRight * (Sgn * ShoulderHalfWidth);
-		const float SwingDeg = FMath::Sin(2.f * PI * StridePhase) * 35.f * StrideAmp * Sgn;
+		const float SwingDeg = FMath::Sin(2.f * UE_PI * StridePhase) * 35.f * StrideAmp * Sgn;
 		const float Spread = 8.f + 26.f * BrakeAmount + 18.f * Charge;
 		const FVector HandOffset(FMath::Sin(FMath::DegreesToRadians(SwingDeg)) * ArmLength * 0.8f + 10.f * BrakeAmount,
 			Sgn * Spread, -FMath::Cos(FMath::DegreesToRadians(SwingDeg)) * ArmLength * 0.85f);
