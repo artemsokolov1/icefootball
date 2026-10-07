@@ -160,6 +160,31 @@ struct FSkateMovementTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0"))
 	float ReverseBrakeDecel = 720.f;
 
+	/** A reverse stop needs a FLICK: the stick must jump (or come from neutral) into the backward sector
+	 *  within this time (s). Sweeping the stick around the rim (circling) is a turn, never a stop. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0", ClampMax = "1"))
+	float ReverseFlickWindow = 0.2f;
+
+	/** Stick direction change (deg) within one frame that counts as a flick. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "30", ClampMax = "180"))
+	float ReverseFlickAngle = 75.f;
+
+	// ---- Carving with the stick swept around ----
+
+	/** Minimum thrust (fraction) while the stick asks for a turn the blades have not reached yet:
+	 *  the skater keeps pushing (crossovers) through a turn instead of coasting and losing speed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "0", ClampMax = "1"))
+	float TurnThrustScale = 0.8f;
+
+	/** At speed, the blades may lead the travel direction by at most this angle (deg). Keeps hard turns
+	 *  carved (speed kept) instead of turning the blades sideways into a skid. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "5", ClampMax = "90"))
+	float MaxCarveLead = 28.f;
+
+	/** Below this speed (cm/s) the blades may pivot freely (compact turn on the spot); the lead limit fades in above it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "0"))
+	float CarveLeadSpeed = 260.f;
+
 	// ---- Integration ----
 
 	/** Largest internal integration step (s). Smaller = less frame-rate dependence. 1/240 is cheap (pure math). */

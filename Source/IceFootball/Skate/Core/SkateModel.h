@@ -48,6 +48,11 @@ struct FSkateMoveState
 	FSkateVec2 Velocity;
 	FSkateVec2 Heading = FSkateVec2(1.f, 0.f);
 	bool bReverseStop = false;
+	/** Stick history for flick detection / committed turn direction. */
+	FSkateVec2 PrevStickDir;
+	bool bPrevStick = false;
+	float TimeSinceStickFlick = 100.f;
+	float TurnSign = 0.f;
 
 	// ---- Telemetry of the last Step() call (averages over the step) ----
 	ESkateMovePhase Phase = ESkateMovePhase::Idle;

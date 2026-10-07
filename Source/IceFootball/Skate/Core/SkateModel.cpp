@@ -117,11 +117,26 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 	const float Brake = SkateMath::Clamp01(Input.Brake);
 	const float Boost = SkateMath::Clamp01(Input.Boost);
 
-	// ---- 1. Reverse-stop intent (stick against travel at speed). Hysteresis avoids flicker. ----
+	// ---- 1. Reverse-stop intent: stick FLICKED against travel at speed. Hysteresis avoids flicker. ----
+	// A flick = the stick came from neutral or jumped by a large angle. Sweeping it around the rim is a turn.
+	State.TimeSinceStickFlick += H;
+	if (bHasStick)
+	{
+		const bool bJump = !State.bPrevStick
+			|| State.PrevStickDir.Dot(StickDir) < std::cos(Tuning.ReverseFlickAngle * SkateMath::DegToRad);
+		if (bJump)
+		{
+			State.TimeSinceStickFlick = 0.f;
+		}
+		State.PrevStickDir = StickDir;
+	}
+	State.bPrevStick = bHasStick;
+
 	const float StickVsTravel = bHasStick ? StickDir.Dot(TravelDir) : 1.f;
 	if (!State.bReverseStop)
 	{
-		State.bReverseStop = bHasStick && Speed > Tuning.ReverseMinSpeed && StickVsTravel < Tuning.ReverseIntentDot;
+		State.bReverseStop = bHasStick && Speed > Tuning.ReverseMinSpeed && StickVsTravel < Tuning.ReverseIntentDot
+			&& State.TimeSinceStickFlick <= Tuning.ReverseFlickWindow;
 	}
 	else
 	{
@@ -135,23 +150,52 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 	FSkateVec2 Heading = State.Heading;
 	{
 		float Rate = TurnRateLimit(Tuning, Speed, Brake);
-		FSkateVec2 Target = Heading;
 		if (State.bReverseStop)
 		{
 			// Keep the blades along the travel line; the pose shows the hockey stop.
-			Target = AxisAlignedWith(Heading, TravelDir);
 			Rate = SkateMath::Min(Rate, Tuning.GlideAlignRate * SkateMath::DegToRad);
+			Heading = Heading.RotatedTowards(AxisAlignedWith(Heading, TravelDir), Rate * H);
+			State.TurnSign = 0.f;
 		}
 		else if (bHasStick)
 		{
-			Target = StickDir;
+			// Commit to a turn direction: once turning one way, a stick that keeps sweeping around (and ends up
+			// more than ~100 deg ahead) continues the same turn instead of flipping to the "shorter" side.
+			float Angle = Heading.SignedAngleTo(StickDir);
+			if (SkateMath::Abs(Angle) > 100.f * SkateMath::DegToRad && State.TurnSign != 0.f && SkateMath::Sign(Angle) != State.TurnSign)
+			{
+				Angle += State.TurnSign * 2.f * SkateMath::Pi;
+			}
+			else if (SkateMath::Abs(Angle) > 2.f * SkateMath::DegToRad)
+			{
+				State.TurnSign = SkateMath::Sign(Angle);
+			}
+			Heading = Heading.Rotated(SkateMath::Clamp(Angle, -Rate * H, Rate * H));
 		}
-		else if (Speed > Tuning.StopSnapSpeed)
+		else
 		{
-			Target = AxisAlignedWith(Heading, TravelDir);
-			Rate = SkateMath::Min(Rate, Tuning.GlideAlignRate * SkateMath::DegToRad);
+			State.TurnSign = 0.f;
+			if (Speed > Tuning.StopSnapSpeed)
+			{
+				Rate = SkateMath::Min(Rate, Tuning.GlideAlignRate * SkateMath::DegToRad);
+				Heading = Heading.RotatedTowards(AxisAlignedWith(Heading, TravelDir), Rate * H);
+			}
 		}
-		Heading = Heading.RotatedTowards(Target, Rate * H).GetSafeNormal();
+
+		// At speed, never let the blades lead the travel direction by more than MaxCarveLead:
+		// the turn stays a carve (grip bends the velocity, speed kept) instead of a sideways skid.
+		const float LeadBlend = SkateMath::SmoothStep01((Speed - Tuning.CarveLeadSpeed) / SkateMath::Max(Tuning.CarveLeadSpeed, 1.f));
+		if (LeadBlend > 0.f && !State.bReverseStop && Brake < 0.05f)
+		{
+			const FSkateVec2 Axis = AxisAlignedWith(Heading, TravelDir);
+			const float Lead = Axis.SignedAngleTo(Heading);
+			const float MaxLead = SkateMath::Lerp(SkateMath::Pi, Tuning.MaxCarveLead * SkateMath::DegToRad, LeadBlend);
+			if (SkateMath::Abs(Lead) > MaxLead)
+			{
+				Heading = Axis.Rotated(SkateMath::Sign(Lead) * MaxLead);
+			}
+		}
+		Heading = Heading.GetSafeNormal();
 		State.Heading = Heading;
 	}
 
@@ -190,7 +234,8 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 	{
 		const float Align = Heading.Dot(StickDir);
 		const float MinDot = SkateMath::Min(Tuning.ThrustAlignMinDot, 0.95f);
-		const float AlignScale = SkateMath::Clamp01((Align - MinDot) / (1.f - MinDot));
+		// Pushing while the blades still turn towards the stick (crossovers): never below TurnThrustScale.
+		const float AlignScale = SkateMath::Max(SkateMath::Clamp01((Align - MinDot) / (1.f - MinDot)), Tuning.TurnThrustScale);
 		const float VMax = SkateMath::Lerp(Tuning.MaxSpeed, Tuning.BoostMaxSpeed, Boost);
 		const float Tau = SkateMath::Max(SkateMath::Lerp(Tuning.ThrustTimeConstant, Tuning.BoostTimeConstant, Boost), 0.01f);
 		const float VTarget = VMax * Mag;
