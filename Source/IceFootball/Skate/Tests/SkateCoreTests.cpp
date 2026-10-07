@@ -7,6 +7,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <algorithm>
 #include <functional>
 
 namespace SkateCoreTestsDetail
@@ -129,16 +130,26 @@ namespace SkateCoreTestsDetail
 	{
 		FSkateVec3 Pos;
 		FSkateVec3 Vel;
-		void Step(const FSkateBallPhysicsTuning& T, float Dt)
+		// Carried balls get their velocity set every frame (UE: damping/rolling resistance off while carried).
+		void Step(const FSkateBallPhysicsTuning& T, float Dt, bool bCarried, float WallX)
 		{
 			FSkateVec2 V = Vel.XY();
-			V *= std::exp(-T.LinearDamping * Dt);
-			const float S = V.Size();
-			const float NewS = SkateMath::Max(0.f, S - T.RollingResistance * Dt);
-			V = S > 0.f ? V * (NewS / S) : V;
-			if (V.Size() < T.StopSpeed) { V = FSkateVec2(); }
+			if (!bCarried)
+			{
+				V *= std::exp(-T.LinearDamping * Dt);
+				const float S = V.Size();
+				const float NewS = SkateMath::Max(0.f, S - T.RollingResistance * Dt);
+				V = S > 0.f ? V * (NewS / S) : V;
+				if (V.Size() < T.StopSpeed) { V = FSkateVec2(); }
+			}
 			Vel = FSkateVec3(V, 0.f);
 			Pos = Pos + Vel * Dt;
+			// Optional board at x = WallX (ball bounces back with the board restitution).
+			if (Pos.X > WallX - T.Radius)
+			{
+				Pos.X = WallX - T.Radius;
+				Vel.X = -Vel.X * T.BoardRestitution;
+			}
 		}
 	};
 
@@ -159,6 +170,9 @@ namespace SkateCoreTestsDetail
 		std::vector<FImpulseLog> Impulses;
 		int MaxImpulsesInOneFrame = 0;
 		bool bLineOfSight = true;
+		float WallX = 1.e9f;          // optional board in front of the skater (+X)
+		FSkateBallCarry LastCarry;
+		int CarriedFrames = 0;
 
 		FSkateContactQuery Query(const FSkateMoveInput& In) const
 		{
@@ -177,11 +191,18 @@ namespace SkateCoreTestsDetail
 			return Q;
 		}
 
-		// One game frame: skater moves, contact is evaluated, impulse applied, ball steps.
+		// One game frame, same order as in UE: skater moves (CMC), contact is evaluated and either one
+		// impulse or the carry steering is applied, then the ball's physics step runs.
 		FSkateBallImpulse Frame(const FSkateMoveInput& In, const FSkateBallActionInput& Actions, float Dt)
 		{
 			Skater.Step(T.Movement, In, Dt);
-			FSkateBallImpulse Imp = FSkateBallControl::Update(T.BallControl, Query(In), Actions, Dt, Control, Report);
+			if (Skater.Pos.X > WallX - 30.f)
+			{
+				// Capsule against the board: slide (CMC removes the velocity into the wall).
+				Skater.Pos.X = WallX - 30.f;
+				Skater.State.Velocity.X = SkateMath::Min(Skater.State.Velocity.X, 0.f);
+			}
+			FSkateBallImpulse Imp = FSkateBallControl::Update(T.BallControl, Query(In), Actions, Dt, Control, Report, &LastCarry);
 			int Count = 0;
 			if (Imp.IsValid())
 			{
@@ -189,10 +210,17 @@ namespace SkateCoreTestsDetail
 				Impulses.push_back({ Skater.Time, Imp.Kind, Imp.NewBallVelocity.Size() });
 				++Count;
 			}
+			else if (LastCarry.bActive)
+			{
+				Ball.Vel = LastCarry.Velocity;
+				++CarriedFrames;
+			}
 			MaxImpulsesInOneFrame = Count > MaxImpulsesInOneFrame ? Count : MaxImpulsesInOneFrame;
-			Ball.Step(T.BallPhysics, Dt);
+			Ball.Step(T.BallPhysics, Dt, LastCarry.bActive && !Imp.IsValid(), WallX);
 			return Imp;
 		}
+
+		bool Possessed() const { return Control.Possession.bPossessed; }
 
 		float MinImpulseGap() const
 		{
@@ -217,6 +245,14 @@ namespace SkateCoreTestsDetail
 		FPlaySim P;
 		P.T = SkateTuningPresets::Make(Preset);
 		P.Ball.Pos = FSkateVec3(BallOffset, P.T.BallPhysics.Radius);
+		return P;
+	}
+
+	// The older "free ball + dribble touches" mode (possession off).
+	FPlaySim MakeLoosePlay(ESkatePreset Preset, const FSkateVec2& BallOffset)
+	{
+		FPlaySim P = MakePlay(Preset, BallOffset);
+		P.T.BallControl.Possession.bEnabled = false;
 		return P;
 	}
 
@@ -674,7 +710,7 @@ namespace SkateCoreTestsDetail
 
 	FDribbleStats Dribble(float StickMag, float Seconds, float Fps)
 	{
-		FPlaySim P = MakePlay(ESkatePreset::Balanced, FSkateVec2(70.f, 0.f));
+		FPlaySim P = MakeLoosePlay(ESkatePreset::Balanced, FSkateVec2(70.f, 0.f));
 		const float Dt = 1.f / Fps;
 		FDribbleStats S;
 		int Samples = 0;
@@ -700,7 +736,7 @@ namespace SkateCoreTestsDetail
 
 	void TestDribbleStraight(std::vector<FSkateTestResult>& Out)
 	{
-		FSkateTestResult R{ "Dribble.Straight" };
+		FSkateTestResult R{ "LooseDribble.Straight" };
 		const FDribbleStats Slow = Dribble(0.35f, 10.f, 60.f);
 		const FDribbleStats Fast = Dribble(1.f, 10.f, 60.f);
 		const FDribbleStats Fast30 = Dribble(1.f, 10.f, 30.f);
@@ -719,8 +755,8 @@ namespace SkateCoreTestsDetail
 
 	void TestDribbleTurnKeepsBallInertia(std::vector<FSkateTestResult>& Out)
 	{
-		FSkateTestResult R{ "Dribble.TurnBallKeepsInertia" };
-		FPlaySim P = MakePlay(ESkatePreset::Balanced, FSkateVec2(70.f, 0.f));
+		FSkateTestResult R{ "LooseDribble.TurnBallKeepsInertia" };
+		FPlaySim P = MakeLoosePlay(ESkatePreset::Balanced, FSkateVec2(70.f, 0.f));
 		const float Dt = 1.f / 60.f;
 		while (P.Skater.Time < 3.f) { P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.8f), FSkateBallActionInput(), Dt); }
 		// Hard turn to +Y. Between touches the ball direction may only change from damping (i.e. not at all).
@@ -743,8 +779,8 @@ namespace SkateCoreTestsDetail
 
 	void TestBrakeThenRecover(std::vector<FSkateTestResult>& Out)
 	{
-		FSkateTestResult R{ "Dribble.BrakeThenRecover" };
-		FPlaySim P = MakePlay(ESkatePreset::Balanced, FSkateVec2(70.f, 0.f));
+		FSkateTestResult R{ "LooseDribble.BrakeThenRecover" };
+		FPlaySim P = MakeLoosePlay(ESkatePreset::Balanced, FSkateVec2(70.f, 0.f));
 		const float Dt = 1.f / 60.f;
 		while (P.Skater.Time < 4.f) { P.Frame(Stick(FSkateVec2(1.f, 0.f), 1.f), FSkateBallActionInput(), Dt); }
 		const int TouchesBefore = P.CountKind(ESkateImpulseKind::Touch);
@@ -841,6 +877,350 @@ namespace SkateCoreTestsDetail
 		R.Details = Fmt("interaction off: impulses=%d", static_cast<int>(P.Impulses.size()));
 		Out.push_back(R);
 	}
+
+	// ---------------------------------- Possession -------------------------------------
+
+	struct FCarryStats
+	{
+		int Frames = 0;
+		int PossessedFrames = 0;
+		int Losses = 0;
+		float MaxAngleDeg = 0.f;      // between blade heading and skater->ball direction
+		float P95AngleDeg = 0.f;
+		float MinBodyDistance = 1e9f; // skater centre -> ball centre
+		float MinAhead = 1e9f;        // ball position along the heading (cm)
+		float MaxAhead = 0.f;
+		float MeanError = 0.f;
+		float MaxError = 0.f;
+		std::vector<float> Angles;
+
+		void Sample(const FPlaySim& P, bool bWasPossessed)
+		{
+			++Frames;
+			if (!P.Possessed())
+			{
+				Losses += bWasPossessed ? 1 : 0;
+				return;
+			}
+			++PossessedFrames;
+			const FSkateVec2 Rel = P.Ball.Pos.XY() - P.Skater.Pos;
+			const float Angle = SkateMath::Abs(P.Skater.State.Heading.SignedAngleTo(Rel.GetSafeNormal())) * SkateMath::RadToDeg;
+			Angles.push_back(Angle);
+			MaxAngleDeg = SkateMath::Max(MaxAngleDeg, Angle);
+			MinBodyDistance = SkateMath::Min(MinBodyDistance, Rel.Size());
+			const float Ahead = Rel.Dot(P.Skater.State.Heading);
+			MinAhead = SkateMath::Min(MinAhead, Ahead);
+			MaxAhead = SkateMath::Max(MaxAhead, Ahead);
+			MeanError += P.Control.Possession.CarryError;
+			MaxError = SkateMath::Max(MaxError, P.Control.Possession.CarryError);
+		}
+
+		void Finish()
+		{
+			MeanError /= SkateMath::Max(static_cast<float>(PossessedFrames), 1.f);
+			if (!Angles.empty())
+			{
+				std::vector<float> Sorted = Angles;
+				std::sort(Sorted.begin(), Sorted.end());
+				P95AngleDeg = Sorted[static_cast<size_t>(0.95f * static_cast<float>(Sorted.size() - 1))];
+			}
+		}
+	};
+
+	// Skater with the ball already trapped at the feet.
+	FPlaySim MakeCarryPlay(ESkatePreset Preset)
+	{
+		FPlaySim P = MakePlay(Preset, FSkateVec2(42.f, 0.f));
+		P.Frame(Stick(FSkateVec2(), 0.f), FSkateBallActionInput(), 1.f / 60.f);
+		return P;
+	}
+
+	using FStickScript = std::function<FSkateMoveInput(float)>;
+
+	FCarryStats RunCarry(FPlaySim& P, float Seconds, float Fps, const FStickScript& Script)
+	{
+		FCarryStats Stats;
+		const float Dt = 1.f / Fps;
+		const float Start = P.Skater.Time;
+		while (P.Skater.Time - Start < Seconds)
+		{
+			const bool bWas = P.Possessed();
+			P.Frame(Script(P.Skater.Time - Start), FSkateBallActionInput(), Dt);
+			Stats.Sample(P, bWas);
+		}
+		Stats.Finish();
+		return Stats;
+	}
+
+	void TestPossessionTrap(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.TrapStationaryBall" };
+		FPlaySim P = MakePlay(ESkatePreset::Balanced, FSkateVec2(400.f, 0.f));
+		const float Dt = 1.f / 60.f;
+		float TrapTime = -1.f;
+		float BallSpeedAtTrap = 0.f;
+		while (P.Skater.Time < 4.f && TrapTime < 0.f)
+		{
+			P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.7f), FSkateBallActionInput(), Dt);
+			if (P.Possessed()) { TrapTime = P.Skater.Time; BallSpeedAtTrap = P.Ball.Vel.Size(); }
+		}
+		// Hold on for a moment and check the ball sits at the feet.
+		const FCarryStats S = RunCarry(P, 2.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 0.7f); });
+		R.bPassed = TrapTime > 0.f && P.Impulses.empty() && S.Losses == 0 && S.MinAhead > 25.f && S.MaxAhead < 95.f;
+		R.Details = Fmt("skating into a resting ball 4 m ahead: trapped after %.2fs (ball %.0f cm/s right after), impulses %d, then ahead %.0f..%.0f cm, losses %d",
+			TrapTime, BallSpeedAtTrap, static_cast<int>(P.Impulses.size()), S.MinAhead, S.MaxAhead, S.Losses);
+		Out.push_back(R);
+	}
+
+	void TestPossessionStraight(std::vector<FSkateTestResult>& Out)
+	{
+		for (ESkatePreset Preset : AllPresets)
+		{
+			FSkateTestResult R{ Fmt("Possession.CarryStraight[%s]", SkateTuningPresets::Name(Preset)) };
+			FPlaySim P = MakeCarryPlay(Preset);
+			const FCarryStats S = RunCarry(P, 8.f, 60.f, [](float Time) { return Stick(FSkateVec2(1.f, 0.f), 1.f, 0.f, Time > 4.f ? 1.f : 0.f); });
+			R.bPassed = S.Losses == 0 && S.PossessedFrames == S.Frames && S.MinAhead > 25.f && S.MaxAhead < 100.f
+				&& S.MaxAngleDeg < 15.f && S.MeanError < 8.f && P.Impulses.empty();
+			R.Details = Fmt("8 s full stick (+RT after 4 s, top %.0f cm/s): losses %d, ball ahead %.0f..%.0f cm, max angle %.1f deg, carry error mean %.1f max %.1f cm, impulses %d",
+				P.Skater.State.Velocity.Size(), S.Losses, S.MinAhead, S.MaxAhead, S.MaxAngleDeg, S.MeanError, S.MaxError, static_cast<int>(P.Impulses.size()));
+			Out.push_back(R);
+		}
+	}
+
+	void TestPossessionSharpTurns(std::vector<FSkateTestResult>& Out)
+	{
+		for (ESkatePreset Preset : AllPresets)
+		{
+			FSkateTestResult R{ Fmt("Possession.SharpTurns[%s]", SkateTuningPresets::Name(Preset)) };
+			FPlaySim P = MakeCarryPlay(Preset);
+			RunCarry(P, 2.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 1.f); });
+			// Every 0.7 s the stick jumps to a new direction: 90 deg, 180 deg, -135 deg, ... at full deflection.
+			const float Jumps[] = { 90.f, 180.f, -135.f, 45.f, 180.f, -90.f, 150.f, -170.f, 100.f, 180.f };
+			const FCarryStats S = RunCarry(P, 7.f, 60.f, [&Jumps](float Time)
+			{
+				float Yaw = 0.f;
+				const int Count = static_cast<int>(Time / 0.7f);
+				for (int Index = 0; Index <= Count && Index < 10; ++Index) { Yaw += Jumps[Index]; }
+				return Stick(FSkateVec2::FromYaw(Yaw * SkateMath::DegToRad), 1.f);
+			});
+			const FSkateTuning& T = P.T;
+			const float BodyLimit = T.BallControl.BodyRadius + T.BallPhysics.Radius * 0.5f - 1.f;
+			R.bPassed = S.Losses == 0 && S.MinBodyDistance >= BodyLimit && S.P95AngleDeg < 30.f && S.MaxAngleDeg < 75.f && P.Impulses.empty();
+			R.Details = Fmt("10 stick flips (90..180 deg) at full speed: losses %d, angle heading->ball p95 %.1f max %.1f deg, closest to body %.0f cm (limit %.0f), carry error mean %.1f max %.1f cm",
+				S.Losses, S.P95AngleDeg, S.MaxAngleDeg, S.MinBodyDistance, BodyLimit, S.MeanError, S.MaxError);
+			Out.push_back(R);
+		}
+	}
+
+	void TestPossessionBrake(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.BrakeKeepsBall" };
+		FPlaySim P = MakeCarryPlay(ESkatePreset::Balanced);
+		RunCarry(P, 3.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 1.f); });
+		const FCarryStats S = RunCarry(P, 2.f, 60.f, [](float) { return Stick(FSkateVec2(), 0.f, 1.f); });
+		const float Ahead = (P.Ball.Pos.XY() - P.Skater.Pos).Dot(P.Skater.State.Heading);
+		R.bPassed = S.Losses == 0 && P.Skater.State.Velocity.Size() == 0.f && P.Ball.Vel.Size() < 5.f && Ahead > 25.f && Ahead < 60.f;
+		R.Details = Fmt("full stop with the ball: losses %d, skater %.0f cm/s, ball %.1f cm/s, ball rests %.0f cm in front", S.Losses,
+			P.Skater.State.Velocity.Size(), P.Ball.Vel.Size(), Ahead);
+		Out.push_back(R);
+	}
+
+	void TestPossessionKick(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.KickFromCarry" };
+		float Speeds[3];
+		bool bReleased = true;
+		bool bNoQuickRetrap = true;
+		for (int Index = 0; Index < 3; ++Index)
+		{
+			const float Dt = 1.f / FrameRates[Index];
+			FPlaySim P = MakeCarryPlay(ESkatePreset::Balanced);
+			RunCarry(P, 2.f, FrameRates[Index], [](float) { return Stick(FSkateVec2(1.f, 0.f), 0.8f); });
+			FSkateBallActionInput Press;
+			Press.bKickPressed = true;
+			P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.8f), Press, Dt);
+			const float Start = P.Skater.Time;
+			while (P.Skater.Time - Start < 0.5f - Dt * 0.5f) { P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.8f), FSkateBallActionInput(), Dt); }
+			bReleased &= P.Possessed(); // still carried while charging
+			FSkateBallActionInput Release;
+			Release.bKickReleased = true;
+			P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.8f), Release, Dt);
+			Speeds[Index] = P.Impulses.empty() ? 0.f : P.Impulses.back().Speed;
+			bReleased &= !P.Possessed() && P.Control.Possession.LastLoss == ESkatePossessionLoss::Kick;
+			for (int Frame = 0; Frame < static_cast<int>(P.T.BallControl.Possession.AcquireCooldownAfterAction / Dt) - 1; ++Frame)
+			{
+				P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.8f), FSkateBallActionInput(), Dt);
+				bNoQuickRetrap &= !P.Possessed();
+			}
+		}
+		const float Spread = SkateMath::Max(RelDiff(Speeds[0], Speeds[2]), RelDiff(Speeds[1], Speeds[2]));
+		R.bPassed = bReleased && bNoQuickRetrap && Speeds[2] > 1500.f && Spread < 0.05f;
+		R.Details = Fmt("0.5 s charge while carrying at 80%% stick: carried during charge + released by the kick=%d, no re-trap during cooldown=%d, shot speed 30/60/120fps = %.0f/%.0f/%.0f cm/s (spread %.1f%%)",
+			bReleased ? 1 : 0, bNoQuickRetrap ? 1 : 0, Speeds[0], Speeds[1], Speeds[2], Spread * 100.f);
+		Out.push_back(R);
+	}
+
+	void TestPossessionKnockOn(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.KnockOnAndRecover" };
+		FPlaySim P = MakeCarryPlay(ESkatePreset::Balanced);
+		const float Dt = 1.f / 60.f;
+		RunCarry(P, 2.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 1.f); });
+		FSkateBallActionInput Push;
+		Push.bPushPressed = true;
+		P.Frame(Stick(FSkateVec2(1.f, 0.f), 1.f), Push, Dt);
+		const bool bPushed = !P.Possessed() && P.CountKind(ESkateImpulseKind::Push) == 1;
+		const float PushTime = P.Skater.Time;
+		float MaxGap = 0.f;
+		float RetrapTime = -1.f;
+		while (P.Skater.Time - PushTime < 4.f && RetrapTime < 0.f)
+		{
+			P.Frame(Stick(FSkateVec2(1.f, 0.f), 1.f, 0.f, 1.f), FSkateBallActionInput(), Dt);
+			MaxGap = SkateMath::Max(MaxGap, P.Ball.Pos.X - P.Skater.Pos.X);
+			if (P.Possessed()) { RetrapTime = P.Skater.Time - PushTime; }
+		}
+		R.bPassed = bPushed && RetrapTime >= P.T.BallControl.Possession.AcquireCooldownAfterAction && RetrapTime < 3.f;
+		R.Details = Fmt("A at full speed: released=%d, ball up to %.0f cm ahead, caught again with RT after %.2fs (cooldown %.2fs)",
+			bPushed ? 1 : 0, MaxGap, RetrapTime, P.T.BallControl.Possession.AcquireCooldownAfterAction);
+		Out.push_back(R);
+	}
+
+	void TestPossessionBoard(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.BoardAndObstacle" };
+		const float Dt = 1.f / 60.f;
+
+		// 1) Into the board, then turn away along it: the ball never goes through the board.
+		FPlaySim P = MakeCarryPlay(ESkatePreset::Balanced);
+		P.WallX = 700.f;
+		float MaxBallX = 0.f;
+		while (P.Skater.Time < 6.f)
+		{
+			const FSkateVec2 Dir = P.Skater.Time < 3.f ? FSkateVec2(1.f, 0.f) : FSkateVec2(-0.3f, 1.f);
+			P.Frame(Stick(Dir, 0.8f), FSkateBallActionInput(), Dt);
+			MaxBallX = SkateMath::Max(MaxBallX, P.Ball.Pos.X + P.T.BallPhysics.Radius);
+		}
+		const bool bBoardOk = MaxBallX <= P.WallX + 0.01f;
+		const bool bKeptAlongBoard = P.Possessed();
+
+		// 2) An obstacle (post, R 30 cm) catches the ball while the skater slides past it: possession is lost.
+		FPlaySim Q = MakeCarryPlay(ESkatePreset::Balanced);
+		const FSkateVec2 Post(500.f, 6.f); // dead ahead of the carried ball
+		const float PostRadius = 30.f;
+		bool bLost = false;
+		float MinPostGap = 1e9f;
+		while (Q.Skater.Time < 4.f && !bLost)
+		{
+			Q.Frame(Stick(FSkateVec2(1.f, 0.f), 0.7f), FSkateBallActionInput(), Dt);
+			// Ball vs post: push out, reflect the normal velocity (as the physics engine would).
+			FSkateVec2 Rel = Q.Ball.Pos.XY() - Post;
+			const float Dist = Rel.Size();
+			const float MinDist = PostRadius + Q.T.BallPhysics.Radius;
+			if (Dist < MinDist)
+			{
+				const FSkateVec2 N = Rel.GetSafeNormal();
+				const FSkateVec2 Fixed = Post + N * MinDist;
+				Q.Ball.Pos = FSkateVec3(Fixed, Q.Ball.Pos.Z);
+				const FSkateVec2 V = Q.Ball.Vel.XY();
+				const float Vn = V.Dot(N);
+				if (Vn < 0.f) { Q.Ball.Vel = FSkateVec3(V - N * (Vn * 1.6f), Q.Ball.Vel.Z); }
+			}
+			MinPostGap = SkateMath::Min(MinPostGap, (Q.Ball.Pos.XY() - Post).Size() - MinDist);
+			bLost = !Q.Possessed() && Q.Control.Possession.LastLoss == ESkatePossessionLoss::Blocked;
+		}
+		R.bPassed = bBoardOk && bLost && MinPostGap > -0.5f;
+		R.Details = Fmt("board: ball never through it=%d (max x %.1f / %.0f), still carried after turning along it=%d | post in the ball's path: ball taken off the feet=%d (%s) after %.2fs",
+			bBoardOk ? 1 : 0, MaxBallX, P.WallX, bKeptAlongBoard ? 1 : 0, bLost ? 1 : 0, SkatePossessionLossName(Q.Control.Possession.LastLoss), Q.Skater.Time);
+		Out.push_back(R);
+	}
+
+	void TestPossessionTrapLimits(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.TrapLimits" };
+		const float Dt = 1.f / 60.f;
+		auto Incoming = [&](float Speed)
+		{
+			FPlaySim P = MakePlay(ESkatePreset::Balanced, FSkateVec2(300.f, 0.f));
+			P.Ball.Vel = FSkateVec3(-Speed, 0.f, 0.f);
+			bool bTrapped = false;
+			for (int Index = 0; Index < 60; ++Index)
+			{
+				P.Frame(Stick(FSkateVec2(), 0.f), FSkateBallActionInput(), Dt);
+				bTrapped |= P.Possessed();
+			}
+			return bTrapped;
+		};
+		const bool bSlow = Incoming(450.f);
+		const bool bFast = Incoming(1600.f);
+		// Ball in the reach zone but 40 cm in the air.
+		FPlaySim High = MakePlay(ESkatePreset::Balanced, FSkateVec2(42.f, 0.f));
+		High.Ball.Pos.Z += 40.f;
+		FSkateContactQuery Q = High.Query(Stick(FSkateVec2(), 0.f));
+		FSkateBallCarry Carry;
+		FSkateBallControl::Update(High.T.BallControl, Q, FSkateBallActionInput(), Dt, High.Control, High.Report, &Carry);
+		const bool bHighTrapped = High.Possessed();
+		// Behind the skater.
+		FPlaySim Behind = MakePlay(ESkatePreset::Balanced, FSkateVec2(-40.f, 0.f));
+		for (int Index = 0; Index < 30; ++Index) { Behind.Frame(Stick(FSkateVec2(), 0.f), FSkateBallActionInput(), Dt); }
+		R.bPassed = bSlow && !bFast && !bHighTrapped && !Behind.Possessed();
+		R.Details = Fmt("incoming 450 cm/s trapped=%d, incoming 1600 cm/s trapped=%d (must bounce), airborne 40 cm trapped=%d, behind the back trapped=%d",
+			bSlow ? 1 : 0, bFast ? 1 : 0, bHighTrapped ? 1 : 0, Behind.Possessed() ? 1 : 0);
+		Out.push_back(R);
+	}
+
+	void TestPossessionFps(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.FpsIndependence" };
+		auto Weave = [](float Time) { return Stick(FSkateVec2::FromYaw(1.1f * std::sin(Time * 2.4f)), Time < 4.f ? 1.f : 0.6f); };
+		FCarryStats S[3];
+		for (int Index = 0; Index < 3; ++Index)
+		{
+			FPlaySim P = MakeCarryPlay(ESkatePreset::Balanced);
+			S[Index] = RunCarry(P, 8.f, FrameRates[Index], Weave);
+		}
+		bool bOk = true;
+		for (const FCarryStats& Stat : S) { bOk &= Stat.Losses == 0 && Stat.MaxAngleDeg < 45.f; }
+		bOk &= SkateMath::Abs(S[0].MeanError - S[2].MeanError) < 5.f && SkateMath::Abs(S[0].P95AngleDeg - S[2].P95AngleDeg) < 8.f;
+		R.bPassed = bOk;
+		R.Details = Fmt("8 s weave with the ball, 30/60/120fps: losses %d/%d/%d, angle p95 %.1f/%.1f/%.1f deg, carry error mean %.1f/%.1f/%.1f cm",
+			S[0].Losses, S[1].Losses, S[2].Losses, S[0].P95AngleDeg, S[1].P95AngleDeg, S[2].P95AngleDeg, S[0].MeanError, S[1].MeanError, S[2].MeanError);
+		Out.push_back(R);
+	}
+
+	void TestPossessionDribbleTaps(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.DribbleTapsFollowSpeed" };
+		FPlaySim Still = MakeCarryPlay(ESkatePreset::Balanced);
+		RunCarry(Still, 3.f, 60.f, [](float) { return Stick(FSkateVec2(), 0.f); });
+		FPlaySim Fast = MakeCarryPlay(ESkatePreset::Balanced);
+		RunCarry(Fast, 2.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 1.f); });
+		const int Before = Fast.Control.Possession.TouchPulseCount;
+		const FCarryStats S = RunCarry(Fast, 4.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 1.f); });
+		const int Taps = Fast.Control.Possession.TouchPulseCount - Before;
+		const float Expected = 4.f * Fast.T.BallControl.Possession.DribbleCadenceFast;
+		R.bPassed = Still.Control.Possession.TouchPulseCount == 0 && SkateMath::Abs(static_cast<float>(Taps) - Expected) <= 2.f && S.MaxAhead - S.MinAhead > 8.f;
+		R.Details = Fmt("standing: %d taps (ball still at the feet); full speed 4 s: %d taps (cadence %.1f/s), ball swings %.0f..%.0f cm ahead",
+			Still.Control.Possession.TouchPulseCount, Taps, Fast.T.BallControl.Possession.DribbleCadenceFast, S.MinAhead, S.MaxAhead);
+		Out.push_back(R);
+	}
+
+	void TestPossessionReverse(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Possession.ReverseStopWithBall" };
+		FPlaySim P = MakeCarryPlay(ESkatePreset::Balanced);
+		RunCarry(P, 3.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 1.f); });
+		const FCarryStats S = RunCarry(P, 3.f, 60.f, [](float) { return Stick(FSkateVec2(-1.f, 0.f), 1.f); });
+		const FSkateTuning& T = P.T;
+		const float BodyLimit = T.BallControl.BodyRadius + T.BallPhysics.Radius * 0.5f - 1.f;
+		// Pivot on the spot with the ball: it must travel AROUND the skater, not through the legs.
+		FPlaySim Pivot = MakeCarryPlay(ESkatePreset::Balanced);
+		const FCarryStats PS = RunCarry(Pivot, 1.5f, 60.f, [](float) { return Stick(FSkateVec2(-1.f, 0.f), 0.4f); });
+		const bool bPivotOk = PS.Losses == 0 && PS.MinBodyDistance >= BodyLimit && Pivot.Ball.Pos.X < Pivot.Skater.Pos.X - 25.f;
+		R.bPassed = S.Losses == 0 && P.Skater.State.Velocity.X < -0.8f * T.Movement.MaxSpeed && P.Ball.Pos.X < P.Skater.Pos.X && S.MinBodyDistance >= BodyLimit && bPivotOk;
+		R.Details = Fmt("full speed then stick back: losses %d, skater now %.0f cm/s the other way, ball in front again=%d, closest to body %.0f cm | pivot on the spot: losses %d, closest to body %.0f cm (limit %.0f), ball in front after=%d",
+			S.Losses, -P.Skater.State.Velocity.X, P.Ball.Pos.X < P.Skater.Pos.X ? 1 : 0, S.MinBodyDistance, PS.Losses, PS.MinBodyDistance, BodyLimit, bPivotOk ? 1 : 0);
+		Out.push_back(R);
+	}
 }
 
 std::vector<FSkateTestResult> RunSkateCoreTests()
@@ -868,6 +1248,17 @@ std::vector<FSkateTestResult> RunSkateCoreTests()
 	TestSingleImpulseUnderMashing(Results);
 	TestBodyBlock(Results);
 	TestDisabledInteraction(Results);
+	TestPossessionTrap(Results);
+	TestPossessionStraight(Results);
+	TestPossessionSharpTurns(Results);
+	TestPossessionReverse(Results);
+	TestPossessionBrake(Results);
+	TestPossessionKick(Results);
+	TestPossessionKnockOn(Results);
+	TestPossessionBoard(Results);
+	TestPossessionTrapLimits(Results);
+	TestPossessionFps(Results);
+	TestPossessionDribbleTaps(Results);
 	return Results;
 }
 

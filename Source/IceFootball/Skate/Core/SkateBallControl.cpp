@@ -25,6 +25,20 @@ const char* SkateContactReasonName(ESkateContactReason Reason)
 	return "?";
 }
 
+const char* SkatePossessionLossName(ESkatePossessionLoss Loss)
+{
+	switch (Loss)
+	{
+	case ESkatePossessionLoss::None: return "-";
+	case ESkatePossessionLoss::Kick: return "Kick";
+	case ESkatePossessionLoss::Push: return "Push";
+	case ESkatePossessionLoss::Blocked: return "Blocked (wall/obstacle)";
+	case ESkatePossessionLoss::Airborne: return "Airborne";
+	case ESkatePossessionLoss::Disabled: return "Disabled";
+	}
+	return "?";
+}
+
 const char* SkateImpulseKindName(ESkateImpulseKind Kind)
 {
 	switch (Kind)
@@ -129,9 +143,95 @@ FSkateContactReport FSkateBallControl::Evaluate(const FSkateBallControlTuning& T
 	return Report;
 }
 
-FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query,
-	const FSkateBallActionInput& Actions, float Dt, FSkateBallControlState& State, FSkateContactReport& OutReport)
+void FSkateBallControl::ReleasePossession(FSkateBallControlState& State, ESkatePossessionLoss Reason)
 {
+	FSkatePossessionState& Poss = State.Possession;
+	if (!Poss.bPossessed)
+	{
+		return;
+	}
+	Poss.bPossessed = false;
+	Poss.LastLoss = Reason;
+	Poss.TimeSinceLost = 0.f;
+	Poss.BlockedTime = 0.f;
+	Poss.bHasPrevTarget = false;
+}
+
+bool FSkateBallControl::CanAcquire(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, const FSkateContactReport& Report, const FSkateBallControlState& State)
+{
+	const FSkatePossessionTuning& PT = Tuning.Possession;
+	return PT.bEnabled
+		&& Query.bHasBall
+		&& Query.bInteractionEnabled
+		&& Report.Reason == ESkateContactReason::Reachable
+		&& Report.RelativeSpeed <= PT.AcquireMaxRelSpeed
+		&& State.TimeSinceAction >= PT.AcquireCooldownAfterAction
+		&& State.Possession.TimeSinceLost >= PT.AcquireCooldownAfterLoss;
+}
+
+FSkateBallCarry FSkateBallControl::ComputeCarry(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Dt, FSkateBallControlState& State)
+{
+	const FSkatePossessionTuning& PT = Tuning.Possession;
+	FSkatePossessionState& Poss = State.Possession;
+	FSkateBallCarry Carry;
+	Carry.bActive = true;
+
+	// ---- Dribble rhythm: tap the ball a little ahead, reel it back in ----
+	const float SpeedRatio = SkateMath::Clamp01(Query.SkaterVel.Size() / SkateMath::Max(Query.SkaterMaxSpeed, 1.f));
+	const float Cadence = SkateMath::Lerp(PT.DribbleCadenceSlow, PT.DribbleCadenceFast, SpeedRatio);
+	const float Amplitude = PT.DribbleAmplitude * SpeedRatio;
+	Poss.DribblePhase += Dt * Cadence;
+	if (Poss.DribblePhase >= 1.f)
+	{
+		Poss.DribblePhase -= std::floor(Poss.DribblePhase);
+		if (Amplitude > 3.f)
+		{
+			++Poss.TouchPulseCount;
+		}
+	}
+	const float Phase = Poss.DribblePhase;
+	const float PushOut = Phase < 0.25f
+		? 1.f - (1.f - Phase / 0.25f) * (1.f - Phase / 0.25f)
+		: 1.f - SkateMath::SmoothStep01((Phase - 0.25f) / 0.75f);
+
+	// ---- Carry point on an orbit around the skater ----
+	const float Distance = SkateMath::Lerp(PT.CarryDistanceSlow, PT.CarryDistanceFast, SpeedRatio) + Amplitude * PushOut;
+	const float TargetAngle = Query.Heading.Yaw() + std::atan2(PT.CarrySideOffset, Distance);
+	const float MaxSwing = PT.OrbitRate * SkateMath::DegToRad * Dt;
+	Poss.OrbitAngle = SkateMath::WrapAngle(Poss.OrbitAngle + SkateMath::Clamp(SkateMath::WrapAngle(TargetAngle - Poss.OrbitAngle), -MaxSwing, MaxSwing));
+	const float MinDistance = Tuning.BodyRadius + Query.BallRadius * 0.5f; // never inside the legs
+	Poss.OrbitDistance = SkateMath::Max(Poss.OrbitDistance + (Distance - Poss.OrbitDistance) * SkateMath::DecayAlpha(12.f, Dt), MinDistance);
+	const FSkateVec2 Target = Query.SkaterPos + FSkateVec2::FromYaw(Poss.OrbitAngle) * Poss.OrbitDistance;
+
+	// ---- Steering: follow the carry point's own motion + bounded correction of the error ----
+	const FSkateVec2 TargetVel = Poss.bHasPrevTarget ? (Target - Poss.CarryTarget) * (1.f / SkateMath::Max(Dt, 1.e-4f)) : Query.SkaterVel;
+	const FSkateVec2 Error = Target - Query.BallPos.XY();
+	Poss.CarryError = Error.Size();
+	Poss.BlockedTime = Poss.CarryError > PT.LoseDistance ? Poss.BlockedTime + Dt : 0.f;
+	FSkateVec2 Correction = Error * (SkateMath::DecayAlpha(1.f / SkateMath::Max(PT.FollowTime, 0.005f), Dt) / SkateMath::Max(Dt, 1.e-4f));
+	const float CorrectionSpeed = Correction.Size();
+	if (CorrectionSpeed > PT.MaxCorrectionSpeed)
+	{
+		Correction *= PT.MaxCorrectionSpeed / CorrectionSpeed;
+	}
+
+	Poss.CarryTarget = Target;
+	Poss.bHasPrevTarget = true;
+	Carry.Target = Target;
+	// Vertical velocity stays whatever physics says (the ball rolls on the ice, never pinned).
+	Carry.Velocity = FSkateVec3(TargetVel + Correction, Query.BallVel.Z);
+	return Carry;
+}
+
+FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query,
+	const FSkateBallActionInput& Actions, float Dt, FSkateBallControlState& State, FSkateContactReport& OutReport,
+	FSkateBallCarry* OutCarry)
+{
+	if (OutCarry)
+	{
+		*OutCarry = FSkateBallCarry();
+	}
+	State.Possession.TimeSinceLost += Dt;
 	State.TimeSinceImpulse += Dt;
 	State.TimeSinceAction += Dt;
 	State.TimeSinceFail += Dt;
@@ -161,7 +261,28 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	OutReport = Evaluate(Tuning, Query);
 	OutReport.bOnCooldown = State.TimeSinceImpulse < Tuning.TouchCooldown || State.TimeSinceAction < Tuning.NoTouchAfterAction;
 
-	const bool bActionReach = OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly;
+	// ---- Possession: lose it when the ball is knocked loose ----
+	FSkatePossessionState& Poss = State.Possession;
+	const FSkatePossessionTuning& PT = Tuning.Possession;
+	if (Poss.bPossessed)
+	{
+		Poss.TimeHeld += Dt;
+		if (!PT.bEnabled || !Query.bHasBall || !Query.bInteractionEnabled)
+		{
+			ReleasePossession(State, ESkatePossessionLoss::Disabled);
+		}
+		else if (OutReport.BallHeight > PT.LoseHeight)
+		{
+			ReleasePossession(State, ESkatePossessionLoss::Airborne);
+		}
+		else if (Poss.BlockedTime > PT.LoseTime || Poss.CarryError > PT.LoseDistanceInstant)
+		{
+			ReleasePossession(State, ESkatePossessionLoss::Blocked);
+		}
+	}
+
+	// A carried ball is at the feet by definition: push / kick are always in reach.
+	const bool bActionReach = Poss.bPossessed || OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly;
 	const bool bGapOk = State.TimeSinceImpulse >= MinImpulseGap;
 	FSkateBallImpulse Impulse;
 
@@ -203,9 +324,36 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		}
 	}
 
-	if (!Impulse.IsValid() && Query.bHasBall && Query.bInteractionEnabled && bGapOk)
+	if (Impulse.IsValid())
 	{
-		if (OutReport.bTouchAllowed && !OutReport.bOnCooldown)
+		// Push / kick release a carried ball.
+		ReleasePossession(State, Impulse.Kind == ESkateImpulseKind::Kick ? ESkatePossessionLoss::Kick : ESkatePossessionLoss::Push);
+	}
+	else if (Poss.bPossessed || CanAcquire(Tuning, Query, OutReport, State))
+	{
+		if (!Poss.bPossessed)
+		{
+			// Trap: start the orbit where the ball actually is, so the first frames are continuous.
+			const FSkateVec2 Rel = Query.BallPos.XY() - Query.SkaterPos;
+			Poss.bPossessed = true;
+			Poss.OrbitAngle = Rel.SizeSquared() > 1.f ? Rel.Yaw() : Query.Heading.Yaw();
+			Poss.OrbitDistance = Rel.Size();
+			Poss.DribblePhase = 0.5f;
+			Poss.BlockedTime = 0.f;
+			Poss.TimeHeld = 0.f;
+			Poss.bHasPrevTarget = false;
+			++Poss.AcquireCount;
+		}
+		const FSkateBallCarry Carry = ComputeCarry(Tuning, Query, Dt, State);
+		if (OutCarry)
+		{
+			*OutCarry = Carry;
+		}
+	}
+	else if (Query.bHasBall && Query.bInteractionEnabled && bGapOk)
+	{
+		// Loose ball: dribble touches only in the non-possession mode; the body always blocks.
+		if (!PT.bEnabled && OutReport.bTouchAllowed && !OutReport.bOnCooldown)
 		{
 			Impulse = MakeTouch(Tuning, Query);
 		}
@@ -222,6 +370,11 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		if (Impulse.Kind == ESkateImpulseKind::Kick || Impulse.Kind == ESkateImpulseKind::Push)
 		{
 			State.TimeSinceAction = 0.f;
+		}
+		if (Impulse.Kind == ESkateImpulseKind::BodyBlock)
+		{
+			// A ball that bounced off the legs is not trapped right away: it must actually bounce.
+			Poss.TimeSinceLost = 0.f;
 		}
 		State.LastKind = Impulse.Kind;
 		State.LastDeltaV = Impulse.DeltaV.Size();

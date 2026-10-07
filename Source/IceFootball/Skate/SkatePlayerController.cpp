@@ -245,6 +245,14 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		if (CameraRig)
 		{
 			CameraRig->Tuning = Skater->GetActiveTuning().Camera;
+			if (!CachedArena.IsValid())
+			{
+				CachedArena = ASkateArena::Find(GetWorld());
+			}
+			if (const ASkateArena* Arena = CachedArena.Get())
+			{
+				CameraRig->SetStaticFocus(Arena->GetRinkCenter()); // the rink may settle onto the level's ground
+			}
 		}
 
 		FSkateFrameInput FrameInput;

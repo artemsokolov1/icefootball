@@ -46,6 +46,10 @@ void USkateBallControlComponent::QueueActions(bool bPush, bool bKickPress, bool 
 void USkateBallControlComponent::ResetControl()
 {
 	FSkateBallControl::Reset(ControlState);
+	if (ASkateBall* B = Ball.Get())
+	{
+		B->SetCarried(false);
+	}
 	PendingActions = FSkateBallActionInput();
 	Report = FSkateContactReport();
 	LastImpulse = FSkateBallImpulse();
@@ -125,7 +129,31 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const FSkateBallActionInput Actions = PendingActions;
 	PendingActions = FSkateBallActionInput();
 
-	const FSkateBallImpulse Impulse = FSkateBallControl::Update(ControlTuning, Query, Actions, DeltaTime, ControlState, Report);
+	const int32 TapsBefore = ControlState.Possession.TouchPulseCount;
+	FSkateBallCarry Carry;
+	const FSkateBallImpulse Impulse = FSkateBallControl::Update(ControlTuning, Query, Actions, DeltaTime, ControlState, Report, &Carry);
+
+	// Possession: a carried ball gets its velocity steered (no damping / rolling resistance while carried);
+	// any release hands it back to plain physics before an impulse is applied.
+	if (B)
+	{
+		B->SetCarried(ControlState.Possession.bPossessed && !Impulse.IsValid());
+		if (Carry.bActive && !Impulse.IsValid())
+		{
+			B->SetCarriedVelocity(ToVector(Carry.Velocity));
+		}
+	}
+	if (ControlState.Possession.TouchPulseCount != TapsBefore)
+	{
+		// Dribble tap while carrying: right foot taps the ball, quiet tap sound.
+		TimeSinceSwing = 0.f;
+		LastSwingKind = ESkateImpulseKind::Touch;
+		LastSwingPower = 0.f;
+		if (USkateFeedbackComponent* Feedback = Skater->GetFeedback())
+		{
+			Feedback->OnDribbleTap();
+		}
+	}
 
 	if (Impulse.IsValid() && B)
 	{
@@ -194,6 +222,12 @@ void USkateBallControlComponent::DrawDebug(const ASkateCharacter& Skater, const 
 		const FVector BallVel(Query.BallVel.X, Query.BallVel.Y, Query.BallVel.Z);
 		DrawDebugDirectionalArrow(World, BallPos, BallPos + BallVel * 0.3f, 15.f, FColor::White, false, -1.f, 0, 1.5f);
 		DrawDebugLine(World, Pos, FVector(BallPos.X, BallPos.Y, Z), ZoneColor, false, -1.f, 0, 0.5f);
+		if (ControlState.Possession.bPossessed)
+		{
+			const FSkateVec2 Target = ControlState.Possession.CarryTarget;
+			DrawDebugCircle(World, FVector(Target.X, Target.Y, Z), 8.f, 16, FColor::Yellow, false, -1.f, 0, 2.f, XAxis, YAxis, false);
+			DrawDebugLine(World, FVector(Target.X, Target.Y, Z), FVector(BallPos.X, BallPos.Y, Z), FColor::Yellow, false, -1.f, 0, 1.f);
+		}
 		if (LastImpulse.IsValid() && ControlState.TimeSinceImpulse < 1.f)
 		{
 			const FVector Dv(LastImpulse.DeltaV.X, LastImpulse.DeltaV.Y, LastImpulse.DeltaV.Z);

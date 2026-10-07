@@ -6,6 +6,13 @@
 //
 // Per frame at most one impulse is produced, in priority order:
 //   Kick (buffered X release) > Push (buffered A) > Dribble touch > Body block.
+//
+// Possession (FSkatePossessionTuning::bEnabled): a reachable, low, controllable ball is
+// trapped and then CARRIED: every frame the ball's velocity is steered onto a carry point in
+// front of the skater (skater velocity + bounded correction). The ball stays a simulated body,
+// so walls and cones still stop it - if it is held back it is lost. On turns the carry point
+// orbits AROUND the skater at a limited rate, so the ball never passes through the legs.
+// Carry steering is not a gameplay impulse; push / kick release the ball with a single impulse.
 #pragma once
 
 #include "SkateMath.h"
@@ -37,6 +44,18 @@ enum class ESkateImpulseKind : unsigned char
 };
 
 const char* SkateImpulseKindName(ESkateImpulseKind Kind);
+
+enum class ESkatePossessionLoss : unsigned char
+{
+	None,
+	Kick,      // released by a shot
+	Push,      // released by a push / knock-on
+	Blocked,   // held back by a wall or obstacle
+	Airborne,  // bounced up
+	Disabled,  // interaction switched off / reset
+};
+
+const char* SkatePossessionLossName(ESkatePossessionLoss Loss);
 
 struct FSkateContactQuery
 {
@@ -94,8 +113,39 @@ struct FSkateBallActionInput
 	bool bKickReleased = false;
 };
 
+struct FSkatePossessionState
+{
+	bool bPossessed = false;
+	/** World yaw (rad) and distance of the carry point around the skater centre. */
+	float OrbitAngle = 0.f;
+	float OrbitDistance = 0.f;
+	/** Dribble rhythm phase 0..1. */
+	float DribblePhase = 0.f;
+	float BlockedTime = 0.f;
+	float TimeHeld = 0.f;
+	float TimeSinceLost = 100.f;
+	/** Distance between the ball and its carry point this frame (cm). */
+	float CarryError = 0.f;
+	FSkateVec2 CarryTarget;
+	bool bHasPrevTarget = false;
+	/** Increments on every dribble tap (for the foot animation / tap sound). */
+	int TouchPulseCount = 0;
+	int AcquireCount = 0;
+	ESkatePossessionLoss LastLoss = ESkatePossessionLoss::None;
+};
+
+/** Carry steering for this frame (not a gameplay impulse). */
+struct FSkateBallCarry
+{
+	bool bActive = false;
+	FSkateVec3 Velocity;
+	FSkateVec2 Target;
+};
+
 struct FSkateBallControlState
 {
+	FSkatePossessionState Possession;
+
 	float TimeSinceImpulse = 100.f;
 	float TimeSinceAction = 100.f;
 
@@ -123,9 +173,14 @@ public:
 	/** Pure query: where is the ball relative to the skater's feet and may it be touched. */
 	static FSkateContactReport Evaluate(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
 
-	/** Advances timers/buffers and returns at most one impulse for this frame. */
+	/** Advances timers/buffers and returns at most one impulse for this frame.
+	 *  When the ball is possessed and no impulse happens, OutCarry receives the carry steering. */
 	static FSkateBallImpulse Update(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query,
-		const FSkateBallActionInput& Actions, float Dt, FSkateBallControlState& State, FSkateContactReport& OutReport);
+		const FSkateBallActionInput& Actions, float Dt, FSkateBallControlState& State, FSkateContactReport& OutReport,
+		FSkateBallCarry* OutCarry = nullptr);
+
+	/** Drops possession (scene reset, interaction off). */
+	static void ReleasePossession(FSkateBallControlState& State, ESkatePossessionLoss Reason);
 
 	/** 0..1 kick charge while X is held (for HUD/pose). */
 	static float ChargeFraction(const FSkateBallControlTuning& Tuning, const FSkateBallControlState& State);
@@ -147,4 +202,6 @@ private:
 	static FSkateBallImpulse MakeKick(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Power);
 	static FSkateBallImpulse MakeBodyBlock(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
 	static FSkateVec2 DesiredDirection(const FSkateContactQuery& Query, float MinStick);
+	static bool CanAcquire(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, const FSkateContactReport& Report, const FSkateBallControlState& State);
+	static FSkateBallCarry ComputeCarry(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Dt, FSkateBallControlState& State);
 };

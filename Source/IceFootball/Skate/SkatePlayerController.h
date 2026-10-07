@@ -22,6 +22,7 @@
 #include "GameFramework/PlayerController.h"
 #include "SkatePlayerController.generated.h"
 
+class ASkateArena;
 class ASkateCameraRig;
 class ASkateCharacter;
 class UInputAction;
@@ -109,6 +110,7 @@ private:
 	UInputAction* IA_FpsCap = nullptr;
 	UInputAction* IA_ToggleBall = nullptr;
 
+	TWeakObjectPtr<ASkateArena> CachedArena;
 	FVector2D StickValue = FVector2D::ZeroVector;
 	FVector2D KeysValue = FVector2D::ZeroVector;
 	bool bSlowHeld = false;

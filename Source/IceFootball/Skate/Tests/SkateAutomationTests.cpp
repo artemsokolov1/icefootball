@@ -5,6 +5,7 @@
 #include "Misc/AutomationTest.h"
 #include "Skate/Tests/SkateCoreTests.h"
 #include "Skate/Tests/SkateCourseTests.h"
+#include "Skate/Tests/SkatePoseTests.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -15,6 +16,7 @@ bool FSkateCoreScenarioTest::RunTest(const FString& Parameters)
 {
 	std::vector<FSkateTestResult> Results = RunSkateCoreTests();
 	RunSkateCourseTests(Results);
+	RunSkatePoseTests(Results);
 	for (const FSkateTestResult& Result : Results)
 	{
 		const FString Message = FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.Name.c_str()), UTF8_TO_TCHAR(Result.Details.c_str()));

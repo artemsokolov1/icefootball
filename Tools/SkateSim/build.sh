@@ -8,6 +8,6 @@ CXX="${CXX:-g++}"
 "$CXX" -std=c++20 -O2 -Wall -Wextra -Wshadow -Werror \
   -I"$HERE/stubs" -I"$SRC/Core" -I"$SRC/Tests" \
   "$SRC/Core/SkateInput.cpp" "$SRC/Core/SkateModel.cpp" "$SRC/Core/SkateBallControl.cpp" \
-  "$SRC/Core/SkateTuningPresets.cpp" "$SRC/Tests/SkateCoreTests.cpp" "$SRC/Tests/SkateCourseTests.cpp" "$HERE/main.cpp" \
+  "$SRC/Core/SkateTuningPresets.cpp" "$SRC/Tests/SkateCoreTests.cpp" "$SRC/Tests/SkateCourseTests.cpp" "$SRC/Tests/SkatePoseTests.cpp" "$SRC/Core/SkatePose.cpp" "$HERE/main.cpp" \
   -o "$HERE/skatesim"
 echo "built $HERE/skatesim"

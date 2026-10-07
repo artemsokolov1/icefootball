@@ -2,6 +2,7 @@
 //   ./build.sh && ./skatesim            -> runs tests, prints metrics, exit code 1 on failure
 #include "SkateCoreTests.h"
 #include "SkateCourseTests.h"
+#include "SkatePoseTests.h"
 
 #include <cstdio>
 
@@ -9,6 +10,7 @@ int main()
 {
 	std::vector<FSkateTestResult> Results = RunSkateCoreTests();
 	RunSkateCourseTests(Results);
+	RunSkatePoseTests(Results);
 	int Failed = 0;
 	for (const FSkateTestResult& R : Results)
 	{

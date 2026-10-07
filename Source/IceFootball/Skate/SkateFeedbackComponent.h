@@ -32,6 +32,9 @@ public:
 	/** Called once per applied ball impulse. */
 	void OnBallImpulse(const FSkateBallImpulse& Impulse, const FVector& BallLocation);
 
+	/** Quiet tap for each dribble touch while carrying the ball. */
+	void OnDribbleTap();
+
 	void ClearMarks();
 
 private:
@@ -45,6 +48,7 @@ private:
 		float Age = 100.f;
 		FVector Location = FVector::ZeroVector;
 		FVector Velocity = FVector::ZeroVector;
+		double FloorZ = 0.0;
 	};
 
 	void EmitMarks(float DeltaTime, float Speed, bool bScraping);

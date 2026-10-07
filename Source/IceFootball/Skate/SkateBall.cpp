@@ -76,7 +76,7 @@ void ASkateBall::ApplyPhysicsTuning(const FSkateBallPhysicsTuning& InTuning)
 	Tuning = InTuning;
 	BallMesh->SetWorldScale3D(FVector(Tuning.Radius / 50.f));
 	BallMesh->SetMassOverrideInKg(NAME_None, Tuning.MassKg, true);
-	BallMesh->SetLinearDamping(Tuning.LinearDamping);
+	BallMesh->SetLinearDamping(bCarried ? 0.f : Tuning.LinearDamping);
 	BallMesh->SetAngularDamping(Tuning.AngularDamping);
 	BallMesh->SetUseCCD(Tuning.bUseCCD);
 }
@@ -112,8 +112,26 @@ void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulse
 	BallMesh->SetPhysicsAngularVelocityInRadians(Spin);
 }
 
+void ASkateBall::SetCarried(bool bInCarried)
+{
+	if (bCarried == bInCarried)
+	{
+		return;
+	}
+	bCarried = bInCarried;
+	BallMesh->SetLinearDamping(bCarried ? 0.f : Tuning.LinearDamping);
+}
+
+void ASkateBall::SetCarriedVelocity(const FVector& NewVelocity)
+{
+	BallMesh->SetPhysicsLinearVelocity(NewVelocity);
+	const FVector Planar(NewVelocity.X, NewVelocity.Y, 0.0);
+	BallMesh->SetPhysicsAngularVelocityInRadians(FVector::CrossProduct(FVector::UpVector, Planar) / FMath::Max(Tuning.Radius, 1.f));
+}
+
 void ASkateBall::ResetBall(const FVector& Location)
 {
+	SetCarried(false);
 	SetActorLocationAndRotation(Location, FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
 	BallMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
 	BallMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
@@ -133,9 +151,9 @@ void ASkateBall::Tick(float DeltaSeconds)
 	const FVector Velocity = BallMesh->GetPhysicsLinearVelocity();
 	const float Height = static_cast<float>(GetActorLocation().Z) - Tuning.Radius - IceZ;
 	bGrounded = Height < GroundTolerance && FMath::Abs(Velocity.Z) < GroundVerticalSpeed;
-	if (!bGrounded)
+	if (!bGrounded || bCarried)
 	{
-		return; // in the air only gravity + damping act; vertical velocity is never touched
+		return; // in the air only gravity + damping act; a carried ball is steered by the skater
 	}
 
 	const FVector Planar(Velocity.X, Velocity.Y, 0.0);

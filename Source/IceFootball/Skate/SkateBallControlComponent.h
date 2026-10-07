@@ -39,6 +39,7 @@ public:
 	const FSkateBallControlState& GetControlState() const { return ControlState; }
 	float GetKickCharge() const;
 	bool IsChargingKick() const { return ControlState.bCharging; }
+	bool HasBall() const { return ControlState.Possession.bPossessed; }
 
 	/** Last applied impulse (for HUD, pose and feedback). */
 	const FSkateBallImpulse& GetLastImpulse() const { return LastImpulse; }

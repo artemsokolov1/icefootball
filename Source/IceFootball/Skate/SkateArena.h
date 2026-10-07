@@ -122,6 +122,10 @@ public:
 	/** Point inside the rink (with a small margin), used for "out of bounds / tunnelled" faults. */
 	bool IsInsideRink(const FVector& WorldLocation, float Margin = 5.f) const;
 
+	/** Lifts the rink so the ice sits on top of whatever ground the level already has (e.g. a landscape).
+	 *  Returns true if the rink moved. Skater and ball are reset to the new start points. */
+	bool SettleOnGround();
+
 	int32 GetGoals() const { return Goals; }
 	double GetLastGoalTime() const { return LastGoalTime; }
 
@@ -169,7 +173,11 @@ private:
 	void AddCone(const FVector2D& Location);
 	void AddLabel(const FVector2D& Location, const FString& Text, const FColor& Color, float Size = 70.f);
 
+	bool FindGroundTop(float& OutTopZ) const;
+
 	int32 Goals = 0;
 	double LastGoalTime = -1000.0;
 	bool bBallInGoal = false;
+	float SettleTimer = 0.f;
+	float SettleCheckAccumulator = 0.f;
 };

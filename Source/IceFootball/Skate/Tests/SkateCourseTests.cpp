@@ -1,5 +1,6 @@
 #include "SkateCourseTests.h"
 
+#include "../Core/SkateBallControl.h"
 #include "../Core/SkateModel.h"
 #include "../Core/SkateTuningPresets.h"
 
@@ -150,7 +151,7 @@ namespace SkateCourseTestsDetail
 		for (int Index = 0; Index < SlalomCones; ++Index)
 		{
 			const float Side = (Index % 2 == 0) ? 1.f : -1.f;
-			Line.Points.push_back(FSkateVec2(SlalomStartX + Index * SlalomSpacing, SlalomY + Side * 120.f));
+			Line.Points.push_back(FSkateVec2(SlalomStartX + static_cast<float>(Index) * SlalomSpacing, SlalomY + Side * 120.f));
 		}
 		Line.Points.push_back(FSkateVec2(SlalomStartX + SlalomCones * SlalomSpacing + 300.f, SlalomY));
 		// Densify so the pursuit point moves smoothly.
@@ -224,7 +225,7 @@ namespace SkateCourseTestsDetail
 		{
 			for (int Index = 0; Index < SlalomCones; ++Index)
 			{
-				MinDist = SkateMath::Min(MinDist, (P - FSkateVec2(SlalomStartX + Index * SlalomSpacing, SlalomY)).Size());
+				MinDist = SkateMath::Min(MinDist, (P - FSkateVec2(SlalomStartX + static_cast<float>(Index) * SlalomSpacing, SlalomY)).Size());
 			}
 		}
 		return MinDist;
@@ -276,10 +277,84 @@ namespace SkateCourseTestsDetail
 	}
 }
 
+namespace SkateCourseTestsDetail
+{
+	// Slalom with the ball carried (possession). Pure pursuit driver, simple ball that follows the carry steering.
+	void TestSlalomWithBall(std::vector<FSkateTestResult>& Out)
+	{
+		const FPolyline Path = SlalomPath();
+		const float Dt = 1.f / 60.f;
+		for (ESkatePreset Preset : Presets)
+		{
+			const FSkateTuning T = SkateTuningPresets::Make(Preset);
+			FSkateTestResult R(Fmt("Course.SlalomWithBall[%s]", SkateTuningPresets::Name(Preset)));
+			std::string Info;
+			bool bModerateOk = false;
+			for (float Mag : { 0.6f, 0.8f, 1.f })
+			{
+				FSkateMoveState State;
+				State.Heading = FSkateVec2(1.f, 0.f);
+				FSkateVec2 Pos = Path.Points[0];
+				FSkateVec3 BallPos(Pos + FSkateVec2(42.f, 0.f), T.BallPhysics.Radius);
+				FSkateVec3 BallVel;
+				FSkateBallControlState Control;
+				FSkateContactReport Report;
+				float Param = 0.f;
+				float Time = 0.f;
+				int Losses = 0;
+				float MinBallCone = 1e9f;
+				const float Last = static_cast<float>(Path.Points.size() - 1);
+				while (Time < 20.f && Param < Last - 0.05f)
+				{
+					Param = Path.Project(Pos, Param, nullptr);
+					const FSkateVec2 Aim = Path.At(Path.Advance(Param, 80.f + 0.2f * State.Velocity.Size()));
+					FSkateMoveInput In;
+					In.Direction = (Aim - Pos).GetSafeNormal(State.Heading);
+					In.Magnitude = Mag;
+					FSkateModel::Step(T.Movement, In, Dt, State);
+					Pos += State.Velocity * Dt;
+
+					FSkateContactQuery Q;
+					Q.SkaterPos = Pos;
+					Q.SkaterVel = State.Velocity;
+					Q.Heading = State.Heading;
+					Q.SkaterMaxSpeed = T.Movement.MaxSpeed;
+					Q.StickDir = In.Direction;
+					Q.StickMag = In.Magnitude;
+					Q.bHasBall = true;
+					Q.BallPos = BallPos;
+					Q.BallVel = BallVel;
+					Q.BallRadius = T.BallPhysics.Radius;
+					const bool bWas = Control.Possession.bPossessed;
+					FSkateBallCarry Carry;
+					const FSkateBallImpulse Imp = FSkateBallControl::Update(T.BallControl, Q, FSkateBallActionInput(), Dt, Control, Report, &Carry);
+					if (Imp.IsValid()) { BallVel = Imp.NewBallVelocity; }
+					else if (Carry.bActive) { BallVel = Carry.Velocity; }
+					BallPos = BallPos + BallVel * Dt;
+					Losses += (bWas && !Control.Possession.bPossessed) ? 1 : 0;
+					for (int Index = 0; Index < SlalomCones; ++Index)
+					{
+						MinBallCone = SkateMath::Min(MinBallCone, (BallPos.XY() - FSkateVec2(SlalomStartX + static_cast<float>(Index) * SlalomSpacing, SlalomY)).Size());
+					}
+					Time += Dt;
+				}
+				// Ball (r 11) must clear the cone base (r 15).
+				const bool bClean = Losses == 0 && Control.Possession.bPossessed && MinBallCone > 15.f + T.BallPhysics.Radius;
+				if (Mag == 0.8f) { bModerateOk = bClean; }
+				Info += Fmt("stick %.1f: %.1fs, losses %d, ball closest to a cone %.0f cm %s; ", Mag, Time, Losses, MinBallCone, bClean ? "clean" : "TOUCHES/LOST");
+			}
+			R.bPassed = bModerateOk;
+			R.Details = Info;
+			Out.push_back(R);
+		}
+	}
+}
+
 void RunSkateCourseTests(std::vector<FSkateTestResult>& Out)
 {
 	using namespace SkateCourseTestsDetail;
 	TestStopZone(Out);
 	TestSlalom(Out);
 	TestCircleAndFigureEight(Out);
+	TestSlalomWithBall(Out);
 }

@@ -103,4 +103,21 @@ struct FSkateVec3
 	FSkateVec3 operator-(const FSkateVec3& O) const { return FSkateVec3(X - O.X, Y - O.Y, Z - O.Z); }
 	FSkateVec3 operator+(const FSkateVec3& O) const { return FSkateVec3(X + O.X, Y + O.Y, Z + O.Z); }
 	FSkateVec3 operator*(float S) const { return FSkateVec3(X * S, Y * S, Z * S); }
+	FSkateVec3 operator-() const { return FSkateVec3(-X, -Y, -Z); }
+	float Dot(const FSkateVec3& O) const { return X * O.X + Y * O.Y + Z * O.Z; }
+	FSkateVec3 Cross(const FSkateVec3& O) const { return FSkateVec3(Y * O.Z - Z * O.Y, Z * O.X - X * O.Z, X * O.Y - Y * O.X); }
+	FSkateVec3 GetSafeNormal(const FSkateVec3& Fallback = FSkateVec3(0.f, 0.f, 1.f)) const
+	{
+		const float S = Size();
+		return S > SkateMath::SmallNumber ? FSkateVec3(X / S, Y / S, Z / S) : Fallback;
+	}
+	/** Rotation about +Z (yaw, degrees): X towards Y, same sense as Unreal yaw. */
+	FSkateVec3 RotatedZ(float YawDeg) const
+	{
+		const float A = YawDeg * SkateMath::DegToRad;
+		const float C = std::cos(A);
+		const float S = std::sin(A);
+		return FSkateVec3(X * C - Y * S, X * S + Y * C, Z);
+	}
+	static FSkateVec3 Lerp(const FSkateVec3& A, const FSkateVec3& B, float T) { return A + (B - A) * T; }
 };

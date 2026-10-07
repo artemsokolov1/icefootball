@@ -102,9 +102,10 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	const ASkateCameraRig* Rig = Pc ? Pc->GetCameraRig() : nullptr;
 	const int32 Cap = Pc ? Pc->GetFpsCap() : 0;
 
-	const FString Status = FString::Printf(TEXT("Preset %s  |  Ball interaction %s  |  Camera %s  |  FPS cap %s  |  Debug: View / F1"),
+	const USkateBallControlComponent* BallState = Skater->GetBallControl();
+	const FString Status = FString::Printf(TEXT("Preset %s  |  Ball %s  |  Camera %s  |  FPS cap %s  |  Debug: View / F1"),
 		ANSI_TO_TCHAR(SkateTuningPresets::Name(Skater->GetPreset())),
-		Skater->IsBallInteractionEnabled() ? TEXT("ON") : TEXT("OFF (skating only)"),
+		!Skater->IsBallInteractionEnabled() ? TEXT("interaction OFF (skating only)") : (BallState && BallState->HasBall() ? TEXT("AT FEET") : TEXT("loose")),
 		Rig && Rig->IsStaticMode() ? TEXT("STATIC") : TEXT("follow"),
 		Cap > 0 ? *FString::FromInt(Cap) : TEXT("off"));
 	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), 0.f, 0.f, Canvas->ClipX, 24.f);
@@ -239,6 +240,16 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 			R.Distance, R.DistanceToReachCentre, R.AngleFromHeadingDeg, R.BallHeight), Info);
 		Line(FString::Printf(TEXT("Relative speed %4.0f cm/s   closing %+5.0f cm/s"), R.RelativeSpeed, R.ClosingSpeed), Info);
 
+		const FSkatePossessionState& Po = C.Possession;
+		if (Po.bPossessed)
+		{
+			Line(FString::Printf(TEXT("Possession: AT FEET %.1f s   carry error %.1f cm   dribble taps %d"), Po.TimeHeld, Po.CarryError, Po.TouchPulseCount), Good);
+		}
+		else
+		{
+			Line(FString::Printf(TEXT("Possession: loose   last lost: %s (%.1f s ago)   traps %d"),
+				ANSI_TO_TCHAR(SkatePossessionLossName(Po.LastLoss)), FMath::Min(Po.TimeSinceLost, 99.f), Po.AcquireCount), Dim);
+		}
 		const bool bReach = R.Reason == ESkateContactReason::Reachable || R.Reason == ESkateContactReason::ActionReachOnly;
 		FString Verdict = FString::Printf(TEXT("Contact: %s"), ANSI_TO_TCHAR(SkateContactReasonName(R.Reason)));
 		if (R.Reason == ESkateContactReason::Reachable)
@@ -324,7 +335,7 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 	CursorX = 14.f;
 	CursorY = Canvas->ClipY - 7.f * LineHeight - 8.f;
 	Line(TEXT("World: green = velocity, blue = blades, yellow = stick, orange = lateral accel,"), Dim);
-	Line(TEXT("       reach zone green/cyan = touch/A-X allowed, grey = not reachable, magenta = last impulse"), Dim);
+	Line(TEXT("       reach zone green/cyan = trap/A-X allowed, grey = not reachable, yellow = carry point, magenta = last impulse"), Dim);
 	Line(TEXT("Pad: LS move | LT brake | RT boost | A push | X hold/release kick | Y reset | RB ball to feet"), Dim);
 	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R preset | D-pad Down FPS cap | Menu ball on/off"), Dim);
 	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J push | K kick | R reset | T ball"), Dim);

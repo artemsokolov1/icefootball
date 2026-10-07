@@ -139,6 +139,14 @@ void USkateFeedbackComponent::OnBallImpulse(const FSkateBallImpulse& Impulse, co
 	}
 }
 
+void USkateFeedbackComponent::OnDribbleTap()
+{
+	if (Synth)
+	{
+		Synth->TriggerImpact(0.12f * Tuning.ImpactVolume, 1.6f);
+	}
+}
+
 void USkateFeedbackComponent::AddMark(UInstancedStaticMeshComponent* Ism, TArray<FMark>& Ring, int32& Next, const FVector& A, const FVector& B, float Width)
 {
 	if (!Ism || Ring.Num() == 0)
@@ -152,7 +160,8 @@ void USkateFeedbackComponent::AddMark(UInstancedStaticMeshComponent* Ism, TArray
 		return;
 	}
 	const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Delta.Y), static_cast<float>(Delta.X)));
-	const FVector Mid((A.X + B.X) * 0.5, (A.Y + B.Y) * 0.5, SkateFeedbackDetail::MarkHeight);
+	// Blade contact points lie on the ice, so marks sit just above the ice wherever the rink is.
+	const FVector Mid((A.X + B.X) * 0.5, (A.Y + B.Y) * 0.5, (A.Z + B.Z) * 0.5 + SkateFeedbackDetail::MarkHeight);
 	FMark& Mark = Ring[Next];
 	Mark.Time = GetWorld()->GetTimeSeconds();
 	Mark.Transform = FTransform(FRotator(0.f, Yaw, 0.f), Mid, FVector((Length + 1.0) / 100.0, Width / 100.0, 0.2 / 100.0));
@@ -256,7 +265,9 @@ void USkateFeedbackComponent::UpdateSpray(float DeltaTime, float Intensity, cons
 			FChip& Chip = Chips[NextChip];
 			NextChip = (NextChip + 1) % Chips.Num();
 			Chip.Age = 0.f;
-			Chip.Location = Puppet->GetBladeWorldTransform(Side).GetLocation() + FVector(0.0, 0.0, 2.0);
+			const FVector BladeOnIce = Puppet->GetBladeWorldTransform(Side).GetLocation();
+			Chip.FloorZ = BladeOnIce.Z;
+			Chip.Location = BladeOnIce + FVector(0.0, 0.0, 2.0);
 			const FVector Spread = FMath::VRand() * 120.f;
 			Chip.Velocity = SkaterVelocity * 0.7f + FVector(Spread.X, Spread.Y, 0.0) + FVector(0.0, 0.0, FMath::FRandRange(120.f, 260.f));
 		}
@@ -279,9 +290,9 @@ void USkateFeedbackComponent::UpdateSpray(float DeltaTime, float Intensity, cons
 		Chip.Age += DeltaTime;
 		Chip.Velocity.Z -= 980.f * DeltaTime;
 		Chip.Location += Chip.Velocity * DeltaTime;
-		if (Chip.Location.Z < 0.5)
+		if (Chip.Location.Z < Chip.FloorZ + 0.5)
 		{
-			Chip.Location.Z = 0.5;
+			Chip.Location.Z = Chip.FloorZ + 0.5;
 			Chip.Velocity *= 0.3f;
 		}
 		const float Size = ChipSize * (1.f - Chip.Age / ChipLife);

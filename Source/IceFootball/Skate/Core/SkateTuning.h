@@ -167,6 +167,80 @@ struct FSkateMovementTuning
 	float MaxSubstep = 1.f / 240.f;
 };
 
+/** Ball possession: the ball stays at the skater's feet while carried (dribbling). */
+USTRUCT(BlueprintType)
+struct FSkatePossessionTuning
+{
+	GENERATED_BODY()
+
+	/** On: a reachable, low, not-too-fast ball is trapped and carried at the feet.
+	 *  Off: the older "free ball + dribble touches" mode. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession")
+	bool bEnabled = true;
+
+	/** Incoming balls faster than this (cm/s, relative to the skater) bounce off instead of being trapped. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float AcquireMaxRelSpeed = 950.f;
+
+	/** No re-trap for this long (s) after the skater's own push or kick, so the ball can leave the feet. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float AcquireCooldownAfterAction = 0.4f;
+
+	/** No re-trap for this long (s) after the ball was knocked loose (blocked by a wall, airborne). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float AcquireCooldownAfterLoss = 0.35f;
+
+	/** Ball centre distance in front of the skater centre when standing / at MaxSpeed (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30"))
+	float CarryDistanceSlow = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30"))
+	float CarryDistanceFast = 60.f;
+
+	/** Sideways offset of the carried ball towards the right (working) foot (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession")
+	float CarrySideOffset = 6.f;
+
+	/** Time constant (s) of the ball converging onto its carry point. Smaller = tighter. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0.01"))
+	float FollowTime = 0.05f;
+
+	/** How fast (deg/s) the ball can swing around the skater when the body turns. It goes AROUND
+	 *  the skater (never through the legs). Higher than the body turn rate = the ball never falls behind. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "90"))
+	float OrbitRate = 900.f;
+
+	/** Cap on the correction speed (cm/s, relative to the skater) used to pull the ball onto its carry point. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "50"))
+	float MaxCorrectionSpeed = 900.f;
+
+	/** Dribble rhythm: the ball is tapped this far ahead (cm) at MaxSpeed and reeled back in. 0 = glued. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float DribbleAmplitude = 18.f;
+
+	/** Dribble taps per second when slow / at MaxSpeed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0.1"))
+	float DribbleCadenceSlow = 1.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0.1"))
+	float DribbleCadenceFast = 2.2f;
+
+	/** Ball further than this from its carry point (cm) for LoseTime = blocked (wall, cone) -> loose ball. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "10"))
+	float LoseDistance = 45.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float LoseTime = 0.12f;
+
+	/** Ball this far from its carry point (cm) = lost immediately (never yanked back from far away). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "10"))
+	float LoseDistanceInstant = 65.f;
+
+	/** Ball lowest point higher than this above the ice (cm) = airborne -> loose ball. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float LoseHeight = 25.f;
+};
+
 /** Skater <-> ball contact: reach zone, dribble touches, push (A), charged kick (X). */
 USTRUCT(BlueprintType)
 struct FSkateBallControlTuning
@@ -295,6 +369,9 @@ struct FSkateBallControlTuning
 	/** No dribble touches for this long (s) after a push or kick, so the leaving ball is not re-touched. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
 	float NoTouchAfterAction = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession")
+	FSkatePossessionTuning Possession;
 };
 
 /** Ball rigid body (ASkateBall). */

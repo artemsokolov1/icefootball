@@ -60,9 +60,87 @@ ASkateArena* ASkateArena::Find(const UWorld* World)
 	return nullptr;
 }
 
+bool ASkateArena::FindGroundTop(float& OutTopZ) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SkateArenaGround), true, this);
+	if (Ball)
+	{
+		Params.AddIgnoredActor(Ball);
+	}
+	FCollisionObjectQueryParams Objects(ECC_WorldStatic);
+	Objects.AddObjectTypesToQuery(ECC_WorldDynamic);
+
+	// Sample the rink footprint (boards included) on a 7 x 5 grid from far above.
+	const FVector Origin = GetActorLocation();
+	const float HalfL = Layout.RinkSize.X * 0.5f + Layout.BoardThickness;
+	const float HalfW = Layout.RinkSize.Y * 0.5f + Layout.BoardThickness;
+	bool bFound = false;
+	OutTopZ = -1.e9f;
+	for (int32 Ix = -3; Ix <= 3; ++Ix)
+	{
+		for (int32 Iy = -2; Iy <= 2; ++Iy)
+		{
+			const FVector P(Origin.X + HalfL * Ix / 3.f, Origin.Y + HalfW * Iy / 2.f, 0.0);
+			FHitResult Hit;
+			if (World->LineTraceSingleByObjectType(Hit, FVector(P.X, P.Y, Origin.Z + 50000.0), FVector(P.X, P.Y, Origin.Z - 50000.0), Objects, Params))
+			{
+				OutTopZ = FMath::Max(OutTopZ, static_cast<float>(Hit.ImpactPoint.Z));
+				bFound = true;
+			}
+		}
+	}
+	return bFound;
+}
+
+bool ASkateArena::SettleOnGround()
+{
+	float GroundTop = 0.f;
+	if (!FindGroundTop(GroundTop))
+	{
+		return false;
+	}
+	const FVector Location = GetActorLocation();
+	const float Target = GroundTop + 1.f;
+	if (FMath::Abs(Target - static_cast<float>(Location.Z)) < 2.f)
+	{
+		return false;
+	}
+	SetActorLocation(FVector(Location.X, Location.Y, Target));
+	UE_LOG(LogIceSkate, Log, TEXT("ASkateArena: rink placed on existing ground, ice at z = %.0f"), Target);
+	if (Ball)
+	{
+		Ball->SetIceZ(Target);
+	}
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<ASkateCharacter> It(World); It; ++It)
+		{
+			ResetScene(*It);
+		}
+	}
+	if (Ball)
+	{
+		Ball->ResetBall(GetBallSpawnLocation());
+	}
+	return true;
+}
+
 void ASkateArena::BeginPlay()
 {
 	Super::BeginPlay();
+	// On a map that already has ground at the origin (e.g. the default open-world template), the rink is
+	// put on top of it instead of intersecting it. On an empty map nothing is hit and the ice stays at z = 0.
+	float GroundTop = 0.f;
+	if (FindGroundTop(GroundTop))
+	{
+		const FVector Location = GetActorLocation();
+		SetActorLocation(FVector(Location.X, Location.Y, GroundTop + 1.f));
+	}
 	BuildMaterials();
 	BuildRink();
 	BuildMarkings();
@@ -72,6 +150,11 @@ void ASkateArena::BeginPlay()
 		BuildLighting();
 	}
 	SpawnBall();
+	// The skater may have been spawned before the rink moved: put it on the ice.
+	for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
+	{
+		ResetScene(*It);
+	}
 }
 
 FTransform ASkateArena::GetPlayerSpawnTransform() const
@@ -371,6 +454,17 @@ void ASkateArena::SpawnBall()
 void ASkateArena::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	// Streamed levels (World Partition) can load their ground a moment after BeginPlay: re-check briefly.
+	if (SettleTimer < 3.f)
+	{
+		SettleTimer += DeltaSeconds;
+		SettleCheckAccumulator += DeltaSeconds;
+		if (SettleCheckAccumulator >= 0.25f)
+		{
+			SettleCheckAccumulator = 0.f;
+			SettleOnGround();
+		}
+	}
 	if (!Ball)
 	{
 		return;

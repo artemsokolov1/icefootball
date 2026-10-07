@@ -35,6 +35,12 @@ public:
 	/** One gameplay contact: sets the new linear velocity and a matching rolling spin. Logged for diagnostics. */
 	void ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind);
 
+	/** Possession: while carried, damping and rolling resistance are off and the velocity is steered every
+	 *  frame by SetCarriedVelocity (not a gameplay impulse). The ball keeps colliding with everything. */
+	void SetCarried(bool bInCarried);
+	bool IsCarried() const { return bCarried; }
+	void SetCarriedVelocity(const FVector& NewVelocity);
+
 	/** Scene reset only (not used during play): teleports and stops the ball. */
 	void ResetBall(const FVector& Location);
 
@@ -75,6 +81,7 @@ protected:
 private:
 	float IceZ = 0.f;
 	bool bGrounded = true;
+	bool bCarried = false;
 
 	double LastImpulseTime = -1000.0;
 	int32 DoubleImpulseFaults = 0;
