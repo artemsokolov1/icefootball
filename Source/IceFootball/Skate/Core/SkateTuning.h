@@ -217,9 +217,13 @@ struct FSkatePossessionTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30", ClampMax = "180"))
 	float TrapHalfAngle = 130.f;
 
+	/** Ball lowest point up to this high above the ice (cm) can still be trapped (a small hop off the board). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float TrapMaxHeight = 28.f;
+
 	/** Incoming balls faster than this (cm/s, relative to the skater) bounce off instead of being trapped. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
-	float AcquireMaxRelSpeed = 950.f;
+	float AcquireMaxRelSpeed = 1200.f;
 
 	/** No re-trap for this long (s) after the skater's own push or kick, so the ball can leave the feet. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
@@ -229,6 +233,11 @@ struct FSkatePossessionTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
 	float AcquireCooldownAfterLoss = 0.35f;
 
+	/** No re-trap for this long (s) after the ball bounced off the legs (short: a ball pinned at the board
+	 *  must not ping-pong between the board and the skates). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float AcquireCooldownAfterBlock = 0.12f;
+
 	/** Ball centre distance in front of the skater centre when standing / at MaxSpeed (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30"))
 	float CarryDistanceSlow = 40.f;
@@ -236,8 +245,9 @@ struct FSkatePossessionTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30"))
 	float CarryDistanceFast = 60.f;
 
-	/** Sideways offset of the carried ball towards the right (working) foot (cm). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession")
+	/** Sideways offset of the carried ball towards the foot that taps it next (cm). Each dribble tap
+	 *  sends it across to the other foot, so taps alternate left / right. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
 	float CarrySideOffset = 6.f;
 
 	/** Time constant (s) of the ball converging onto its carry point. Smaller = tighter. */
@@ -277,7 +287,11 @@ struct FSkatePossessionTuning
 
 	/** Ball lowest point higher than this above the ice (cm) = airborne -> loose ball. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
-	float LoseHeight = 25.f;
+	float LoseHeight = 32.f;
+
+	/** The carried ball is kept this far (cm) off the boards: it rolls along them instead of being pressed in. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float BoardClearance = 1.f;
 };
 
 /** Skater <-> ball contact: reach zone, dribble touches, push (A), charged kick (X). */
@@ -401,13 +415,25 @@ struct FSkateBallControlTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "2"))
 	float KickCarry = 0.5f;
 
-	/** Upward speed (cm/s) at full charge: a low shot that hops a little. Ground shots only for now. */
+	/** Upward speed (cm/s) at full charge: a strong shot flies (ball centre apex ~1.55 m, the ball stays under a 1.8 m bar). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
-	float KickLiftAtFullCharge = 160.f;
+	float KickLiftAtFullCharge = 530.f;
+
+	/** Below this charge (0..1) shots stay on the ice; above it the lift grows smoothly to KickLiftAtFullCharge. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "0.95"))
+	float KickLiftStartCharge = 0.35f;
 
 	/** Max angle (deg) between the kick direction and the physical contact direction. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "90"))
 	float KickMaxDeviation = 35.f;
+
+	// ---- Which foot plays the ball ----
+
+	/** Foot choice for passes / shots: the foot on the ball's side, and for an angled ball the foot that
+	 *  plays it with the inside (shot to the left = right foot, to the right = left foot).
+	 *  This bias only decides near-ties: +1 = strongly right-footed, -1 = left-footed, 0 = two-footed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Feet", meta = (ClampMin = "-1", ClampMax = "1"))
+	float FootPreference = 0.15f;
 
 	/** After X is released while the ball is out of reach, the kick waits this long (s) for the ball, then whiffs. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "0.5"))

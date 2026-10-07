@@ -115,7 +115,9 @@ void USkaterPuppetComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	{
 		// A charged pass winds the leg up too, a little less than a shot.
 		Input.KickCharge = FMath::Max(Ball->GetKickCharge(), 0.6f * Ball->GetPassCharge());
+		Input.ChargeFoot = Ball->GetPlannedFoot();
 		Input.SwingKind = Ball->GetLastSwingKind();
+		Input.SwingFoot = Ball->GetLastSwingFoot();
 		Input.SwingTime = Ball->GetTimeSinceActionSwing();
 		Input.SwingPower = Ball->GetLastSwingPower();
 	}

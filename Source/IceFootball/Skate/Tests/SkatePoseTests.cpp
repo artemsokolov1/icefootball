@@ -41,6 +41,8 @@ namespace SkatePoseTestsDetail
 		C.push_back({ "brake", Brake });
 		FSkatePoseInput Wind; Wind.KickCharge = 1.f;
 		C.push_back({ "kick-windup", Wind });
+		FSkatePoseInput WindLeft; WindLeft.KickCharge = 1.f; WindLeft.ChargeFoot = 0;
+		C.push_back({ "kick-windup-left", WindLeft });
 		return C;
 	}
 
@@ -148,6 +150,7 @@ void RunSkatePoseTests(std::vector<FSkateTestResult>& Out)
 				FSkatePoseState PoseState;
 				float SwingTime = 100.f;
 				ESkateImpulseKind SwingKind = ESkateImpulseKind::None;
+				int SwingFoot = 1;
 				FSkateVec3 PrevAnkle[2];
 				float PrevLean = 0.f;
 				float MaxFootSpeed = 0.f;  // cm/s of an ankle relative to the skater
@@ -180,7 +183,7 @@ void RunSkatePoseTests(std::vector<FSkateTestResult>& Out)
 					BallVel = Imp.IsValid() ? Imp.NewBallVelocity : (Carry.bActive ? Carry.Velocity : BallVel);
 					BallPos = BallPos + BallVel * Step;
 					SwingTime += Step;
-					if (Control.Possession.TouchPulseCount != TapsBefore) { SwingTime = 0.f; SwingKind = ESkateImpulseKind::Touch; }
+					if (Control.Possession.TouchPulseCount != TapsBefore) { SwingTime = 0.f; SwingKind = ESkateImpulseKind::Touch; SwingFoot = Control.Possession.TapFoot; }
 
 					FSkatePoseInput PoseIn;
 					PoseIn.SpeedRatio = Move.Velocity.Size() / T.Movement.MaxSpeed;
@@ -191,6 +194,7 @@ void RunSkatePoseTests(std::vector<FSkateTestResult>& Out)
 					PoseIn.LateralAccel = Move.LateralAccel;
 					PoseIn.SlideSide = Move.Heading.Cross(Move.Velocity) >= 0.f ? 1.f : -1.f;
 					PoseIn.SwingKind = SwingKind;
+					PoseIn.SwingFoot = SwingFoot;
 					PoseIn.SwingTime = SwingTime;
 					const FSkatePose P = FSkatePoseSolver::Update(T.Anim, PoseIn, Step, PoseState);
 					if (Time > 3.f)
@@ -222,5 +226,48 @@ void RunSkatePoseTests(std::vector<FSkateTestResult>& Out)
 		J.Details = Info;
 		Out.push_back(J);
 	}
-}
 
+	// ---- The leg chosen by the ball control plays the ball: left and right mirror each other ----
+	{
+		FSkateTestResult K("Pose.EitherFootPlays");
+		bool bOk = true;
+		std::string Info;
+		for (int Foot = 0; Foot < 2; ++Foot)
+		{
+			const int Other = 1 - Foot;
+			FSkatePoseState WindState;
+			FSkatePoseInput Wind;
+			Wind.KickCharge = 1.f;
+			Wind.ChargeFoot = Foot;
+			FSkatePose WindPose;
+			for (int Frame = 0; Frame < 30; ++Frame) { WindPose = FSkatePoseSolver::Update(T.Anim, Wind, Dt, WindState); }
+			const float WindBack = WindPose.Ankle[Other].X - WindPose.Ankle[Foot].X;
+			const float WindLift = WindPose.FootLift[Foot];
+
+			FSkatePoseInput Swing;
+			Swing.SwingKind = ESkateImpulseKind::Kick;
+			Swing.SwingFoot = Foot;
+			Swing.SwingPower = 1.f;
+			Swing.SwingTime = FSkatePoseSolver::KickSwingTime * 0.3f;
+			const FSkatePose SwingPose = FSkatePoseSolver::Update(T.Anim, Swing, Dt, WindState);
+			const float SwingAhead = SwingPose.Ankle[Foot].X - SwingPose.Ankle[Other].X;
+
+			FSkatePoseState TapState;
+			FSkatePoseInput Tap;
+			Tap.SpeedRatio = 0.8f;
+			Tap.SwingKind = ESkateImpulseKind::Touch;
+			Tap.SwingFoot = Foot;
+			Tap.SwingTime = FSkatePoseSolver::TouchSwingTime * 0.5f;
+			const FSkatePose TapPose = FSkatePoseSolver::Update(T.Anim, Tap, Dt, TapState);
+			const float TapAhead = TapPose.Ankle[Foot].X - TapPose.Ankle[Other].X;
+
+			const bool bCase = WindBack > 25.f && WindLift > 8.f && SwingAhead > 30.f && TapAhead > 10.f && WindPose.FootLift[Other] < 0.5f;
+			bOk &= bCase;
+			Info += Fmt("%s foot: wind-up %.0f cm behind the other, lifted %.0f cm (other %.1f); swing %.0f cm ahead; tap %.0f cm ahead%s; ",
+				Foot == 0 ? "left" : "right", WindBack, WindLift, WindPose.FootLift[Other], SwingAhead, TapAhead, bCase ? "" : " FAIL");
+		}
+		K.bPassed = bOk;
+		K.Details = Info;
+		Out.push_back(K);
+	}
+}

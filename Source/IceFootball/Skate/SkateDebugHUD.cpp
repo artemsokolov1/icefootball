@@ -270,7 +270,8 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 		{
 			Line(TEXT("Last impulse: none"), Dim);
 		}
-		Line(FString::Printf(TEXT("Shot charge %.2f  pass charge %.2f   kick buffer %s   pass buffer %s"), BallControl->GetKickCharge(), BallControl->GetPassCharge(),
+		Line(FString::Printf(TEXT("Shot charge %.2f  pass charge %.2f  next foot %s   kick buffer %s   pass buffer %s"), BallControl->GetKickCharge(), BallControl->GetPassCharge(),
+			BallControl->GetPlannedFoot() == SkateFoot::Right ? TEXT("R") : TEXT("L"),
 			C.KickBuffer >= 0.f ? *FString::Printf(TEXT("%.2fs"), C.KickBuffer) : TEXT("-"),
 			C.PushBuffer >= 0.f ? *FString::Printf(TEXT("%.2fs"), C.PushBuffer) : TEXT("-")), Info);
 		if (C.LastFailedAction != ESkateImpulseKind::None && C.TimeSinceFail < 3.f)

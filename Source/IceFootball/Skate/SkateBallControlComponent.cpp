@@ -3,6 +3,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Skate/SkateArena.h"
 #include "Skate/SkateBall.h"
 #include "Skate/SkateCharacter.h"
 #include "Skate/SkateFeedbackComponent.h"
@@ -14,6 +15,9 @@ namespace SkateBallControlComponentDetail
 	constexpr float TraceRange = 300.f;
 	// Trace starts this high above the ice (shin height), ends at the ball centre.
 	constexpr float TraceStartHeight = 25.f;
+	// Board probes around the skater: count and length (beyond the furthest carry point).
+	constexpr int32 BoardProbeCount = 8;
+	constexpr float BoardProbeRange = 150.f;
 
 	FVector ToVector(const FSkateVec3& V) { return FVector(V.X, V.Y, V.Z); }
 	FSkateVec3 ToSkate(const FVector& V) { return FSkateVec3(static_cast<float>(V.X), static_cast<float>(V.Y), static_cast<float>(V.Z)); }
@@ -96,6 +100,43 @@ bool USkateBallControlComponent::HasLineOfSight(const ASkateCharacter& Skater, c
 	return !GetWorld()->LineTraceSingleByObjectType(Hit, Start, BallLoc, FCollisionObjectQueryParams(ECC_WorldStatic), Params);
 }
 
+void USkateBallControlComponent::FindBoards(const ASkateCharacter& Skater, const ASkateBall& InBall, FSkateContactQuery& Query) const
+{
+	using namespace SkateBallControlComponentDetail;
+	const FVector SkaterLoc = Skater.GetActorLocation();
+	const FVector Origin(SkaterLoc.X, SkaterLoc.Y, InBall.GetIceZ() + InBall.GetRadius());
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SkateBoardProbe), false, &Skater);
+	Params.AddIgnoredActor(&InBall);
+	for (int32 Index = 0; Index < BoardProbeCount; ++Index)
+	{
+		const FVector Dir = FVector::ForwardVector.RotateAngleAxis(360.f * Index / BoardProbeCount, FVector::UpVector);
+		FHitResult Hit;
+		if (!GetWorld()->LineTraceSingleByObjectType(Hit, Origin, Origin + Dir * BoardProbeRange, FCollisionObjectQueryParams(ECC_WorldStatic), Params))
+		{
+			continue;
+		}
+		const UPrimitiveComponent* HitComponent = Hit.GetComponent();
+		if (!HitComponent || !HitComponent->ComponentHasTag(ASkateArena::BoardTag()))
+		{
+			continue;
+		}
+		const FSkateVec2 Normal = FSkateVec2(static_cast<float>(Hit.ImpactNormal.X), static_cast<float>(Hit.ImpactNormal.Y)).GetSafeNormal(FSkateVec2());
+		if (Normal.SizeSquared() < 0.5f)
+		{
+			continue;
+		}
+		bool bKnown = false;
+		for (int32 Wall = 0; Wall < Query.NumWalls; ++Wall)
+		{
+			bKnown |= Query.Walls[Wall].Normal.Dot(Normal) > 0.95f;
+		}
+		if (!bKnown)
+		{
+			Query.AddWall(FSkateVec2(static_cast<float>(Hit.ImpactPoint.X), static_cast<float>(Hit.ImpactPoint.Y)), Normal);
+		}
+	}
+}
+
 void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	using namespace SkateBallControlComponentDetail;
@@ -130,6 +171,10 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		Query.IceZ = B->GetIceZ();
 		const float PlanarDist = (Query.BallPos.XY() - Query.SkaterPos).Size();
 		Query.bLineOfSightClear = PlanarDist > TraceRange || HasLineOfSight(*Skater, *B);
+		if (PlanarDist <= TraceRange)
+		{
+			FindBoards(*Skater, *B, Query);
+		}
 	}
 
 	const FSkateBallActionInput Actions = PendingActions;
@@ -151,10 +196,11 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	}
 	if (ControlState.Possession.TouchPulseCount != TapsBefore)
 	{
-		// Dribble tap while carrying: right foot taps the ball, quiet tap sound.
+		// Dribble tap while carrying: the feet take turns, quiet tap sound.
 		TimeSinceSwing = 0.f;
 		LastSwingKind = ESkateImpulseKind::Touch;
 		LastSwingPower = 0.f;
+		LastSwingFoot = ControlState.Possession.TapFoot;
 		if (USkateFeedbackComponent* Feedback = Skater->GetFeedback())
 		{
 			Feedback->OnDribbleTap();
@@ -170,6 +216,7 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 			TimeSinceSwing = 0.f;
 			LastSwingKind = Impulse.Kind;
 			LastSwingPower = Impulse.Power;
+			LastSwingFoot = Impulse.Foot;
 		}
 		if (USkateFeedbackComponent* Feedback = Skater->GetFeedback())
 		{
@@ -182,6 +229,7 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		TimeSinceSwing = 0.f;
 		LastSwingKind = ControlState.LastFailedAction;
 		LastSwingPower = ControlState.PendingKickPower;
+		LastSwingFoot = ControlState.PlannedFoot;
 	}
 
 	if (Skater->IsDebugEnabled())

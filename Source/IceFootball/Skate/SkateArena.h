@@ -107,6 +107,9 @@ public:
 
 	static ASkateArena* Find(const UWorld* World);
 
+	/** Component tag of the four boards (the carried ball is kept off them; cones / goal are obstacles). */
+	static FName BoardTag() { return FName(TEXT("SkateBoard")); }
+
 	FTransform GetPlayerSpawnTransform() const;
 	FVector GetBallSpawnLocation() const;
 	FVector GetRinkCenter() const { return GetActorLocation(); }

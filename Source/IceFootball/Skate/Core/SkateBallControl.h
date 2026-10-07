@@ -57,6 +57,20 @@ enum class ESkatePossessionLoss : unsigned char
 
 const char* SkatePossessionLossName(ESkatePossessionLoss Loss);
 
+/** A board face near the skater (vertical plane): Point on the face, Normal pointing into the rink. */
+struct FSkateWallPlane
+{
+	FSkateVec2 Point;
+	FSkateVec2 Normal = FSkateVec2(1.f, 0.f);
+};
+
+/** Feet: 0 = left, 1 = right (same indexing as the pose). */
+namespace SkateFoot
+{
+	constexpr int Left = 0;
+	constexpr int Right = 1;
+}
+
 struct FSkateContactQuery
 {
 	FSkateVec2 SkaterPos;
@@ -78,6 +92,21 @@ struct FSkateContactQuery
 	/** False when a trace from the skater to the ball hits a wall (no touching through boards). */
 	bool bLineOfSightClear = true;
 	bool bInteractionEnabled = true;
+
+	/** Boards near the skater: the carried ball is kept in front of them instead of being pressed in. */
+	static constexpr int MaxWalls = 4;
+	FSkateWallPlane Walls[MaxWalls];
+	int NumWalls = 0;
+
+	void AddWall(const FSkateVec2& Point, const FSkateVec2& Normal)
+	{
+		if (NumWalls < MaxWalls)
+		{
+			Walls[NumWalls].Point = Point;
+			Walls[NumWalls].Normal = Normal.GetSafeNormal(FSkateVec2(1.f, 0.f));
+			++NumWalls;
+		}
+	}
 };
 
 struct FSkateContactReport
@@ -102,6 +131,7 @@ struct FSkateBallImpulse
 	FSkateVec3 DeltaV;
 	FSkateVec2 Direction;
 	float Power = 0.f; // kick charge 0..1
+	int Foot = SkateFoot::Right; // which foot plays it (push / kick)
 
 	bool IsValid() const { return Kind != ESkateImpulseKind::None; }
 };
@@ -126,12 +156,18 @@ struct FSkatePossessionState
 	float BlockedTime = 0.f;
 	float TimeHeld = 0.f;
 	float TimeSinceLost = 100.f;
+	float TimeSinceBlock = 100.f;
 	/** Distance between the ball and its carry point this frame (cm). */
 	float CarryError = 0.f;
 	FSkateVec2 CarryTarget;
 	bool bHasPrevTarget = false;
 	/** Increments on every dribble tap (for the foot animation / tap sound). */
 	int TouchPulseCount = 0;
+	/** Foot of the latest dribble tap. */
+	int TapFoot = SkateFoot::Right;
+	/** Side (+1 right foot, -1 left foot) the ball sits at now, and its smoothed sideways offset (cm). */
+	float SideSign = 1.f;
+	float SideOffset = 0.f;
 	int AcquireCount = 0;
 	ESkatePossessionLoss LastLoss = ESkatePossessionLoss::None;
 };
@@ -157,6 +193,9 @@ struct FSkateBallControlState
 	bool bChargingPass = false;
 	float PassChargeTime = 0.f;
 	float PendingPassPower = 0.f;
+
+	/** Foot that will play the next push / kick (updated every frame, with hysteresis; pose wind-up). */
+	int PlannedFoot = SkateFoot::Right;
 
 	float PushBuffer = -1.f;   // >= 0 while a released pass waits for the ball
 	float KickBuffer = -1.f;   // >= 0 while a released kick waits for the ball
@@ -196,6 +235,12 @@ public:
 
 	/** Physical contact direction: from the foot (just in front of the skater centre) to the ball. */
 	static FSkateVec2 ContactNormal(const FSkateContactQuery& Query);
+
+	/** Which foot should play a ball going in Direction (keeps CurrentFoot unless the other one is clearly better). */
+	static int ChooseFoot(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, const FSkateVec2& Direction, int CurrentFoot);
+
+	/** Moves a carry point out of the boards in Query.Walls (and keeps it out of the body). */
+	static FSkateVec2 KeepOffWalls(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, const FSkateVec2& Point);
 
 	/** Rotates From towards To by at most MaxDeg. */
 	static FSkateVec2 LimitDeviation(const FSkateVec2& From, const FSkateVec2& To, float MaxDeg);

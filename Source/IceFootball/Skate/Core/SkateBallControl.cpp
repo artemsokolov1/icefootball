@@ -73,6 +73,54 @@ FSkateVec2 FSkateBallControl::ContactNormal(const FSkateContactQuery& Query)
 	return (Query.BallPos.XY() - Foot).GetSafeNormal(Query.Heading);
 }
 
+int FSkateBallControl::ChooseFoot(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, const FSkateVec2& Direction, int CurrentFoot)
+{
+	const FSkateVec2 Right = Query.Heading.Right();
+	// The ball beside a foot is played by that foot; a ball sent across the body by the foot that
+	// plays it with the inside (to the left = right foot, to the right = left foot).
+	const float BallSide = SkateMath::Clamp((Query.BallPos.XY() - Query.SkaterPos).Dot(Right) / 8.f, -1.5f, 1.5f);
+	const float DirSide = Direction.GetSafeNormal(Query.Heading).Dot(Right);
+	const float Score = BallSide - 2.5f * DirSide + Tuning.FootPreference;
+	constexpr float Hysteresis = 0.35f;
+	if (CurrentFoot == SkateFoot::Right)
+	{
+		return Score < -Hysteresis ? SkateFoot::Left : SkateFoot::Right;
+	}
+	return Score > Hysteresis ? SkateFoot::Right : SkateFoot::Left;
+}
+
+FSkateVec2 FSkateBallControl::KeepOffWalls(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, const FSkateVec2& Point)
+{
+	FSkateVec2 P = Point;
+	const float Clear = Query.BallRadius + Tuning.Possession.BoardClearance;
+	const float MinDistance = Tuning.BodyRadius + Query.BallRadius * 0.5f;
+	// Two passes so a corner (two boards) is resolved too.
+	for (int Pass = 0; Pass < 2; ++Pass)
+	{
+		for (int Index = 0; Index < Query.NumWalls; ++Index)
+		{
+			const FSkateWallPlane& W = Query.Walls[Index];
+			const float Depth = (P - W.Point).Dot(W.Normal) - Clear;
+			if (Depth >= 0.f)
+			{
+				continue;
+			}
+			P -= W.Normal * Depth;
+			// Pinned between the board and the skates: slide along the board, out of the legs.
+			const FSkateVec2 Along = W.Normal.Right();
+			const float H = (Query.SkaterPos - W.Point).Dot(W.Normal) - Clear;
+			float T = (P - Query.SkaterPos).Dot(Along);
+			if (H * H + T * T < MinDistance * MinDistance)
+			{
+				const float Side = SkateMath::Abs(T) > 0.5f ? SkateMath::Sign(T) : SkateMath::Sign(Query.Heading.Dot(Along) + 1.e-3f);
+				T = Side * std::sqrt(SkateMath::Max(MinDistance * MinDistance - H * H, 0.f));
+				P = Query.SkaterPos - W.Normal * H + Along * T;
+			}
+		}
+	}
+	return P;
+}
+
 FSkateVec2 FSkateBallControl::LimitDeviation(const FSkateVec2& From, const FSkateVec2& To, float MaxDeg)
 {
 	return From.RotatedTowards(To, SkateMath::Max(MaxDeg, 0.f) * SkateMath::DegToRad).GetSafeNormal(From);
@@ -143,7 +191,7 @@ FSkateContactReport FSkateBallControl::Evaluate(const FSkateBallControlTuning& T
 
 	Report.bInTrapZone = Report.Distance <= Tuning.Possession.TrapDistance
 		&& Report.AngleFromHeadingDeg <= Tuning.Possession.TrapHalfAngle
-		&& Report.BallHeight <= Tuning.MaxTouchHeight
+		&& Report.BallHeight <= Tuning.Possession.TrapMaxHeight
 		&& Query.bLineOfSightClear;
 
 	Report.bHasDribbleIntent = Query.StickMag >= Tuning.DribbleMinStick || Query.SkaterVel.Size() >= Tuning.DribbleMinSpeedNoStick;
@@ -176,7 +224,8 @@ bool FSkateBallControl::CanAcquire(const FSkateBallControlTuning& Tuning, const 
 		&& Report.bInTrapZone
 		&& Report.RelativeSpeed <= PT.AcquireMaxRelSpeed
 		&& State.TimeSinceAction >= PT.AcquireCooldownAfterAction
-		&& State.Possession.TimeSinceLost >= PT.AcquireCooldownAfterLoss;
+		&& State.Possession.TimeSinceLost >= PT.AcquireCooldownAfterLoss
+		&& State.Possession.TimeSinceBlock >= PT.AcquireCooldownAfterBlock;
 }
 
 FSkateBallCarry FSkateBallControl::ComputeCarry(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Dt, FSkateBallControlState& State)
@@ -190,15 +239,25 @@ FSkateBallCarry FSkateBallControl::ComputeCarry(const FSkateBallControlTuning& T
 	const float SpeedRatio = SkateMath::Clamp01(Query.SkaterVel.Size() / SkateMath::Max(Query.SkaterMaxSpeed, 1.f));
 	const float Cadence = SkateMath::Lerp(PT.DribbleCadenceSlow, PT.DribbleCadenceFast, SpeedRatio);
 	const float Amplitude = PT.DribbleAmplitude * SpeedRatio;
+	const bool bWindingUp = State.bCharging || State.bChargingPass;
 	Poss.DribblePhase += Dt * Cadence;
 	if (Poss.DribblePhase >= 1.f)
 	{
 		Poss.DribblePhase -= std::floor(Poss.DribblePhase);
-		if (Amplitude > 3.f)
+		if (Amplitude > 3.f && !bWindingUp)
 		{
+			// The foot the ball sits at taps it - across to the other foot, which taps next.
+			Poss.TapFoot = Poss.SideSign > 0.f ? SkateFoot::Right : SkateFoot::Left;
+			Poss.SideSign = -Poss.SideSign;
 			++Poss.TouchPulseCount;
 		}
 	}
+	if (bWindingUp)
+	{
+		// Winding up for a pass / shot: the ball settles in front of the playing foot.
+		Poss.SideSign = State.PlannedFoot == SkateFoot::Right ? 1.f : -1.f;
+	}
+	Poss.SideOffset += (PT.CarrySideOffset * Poss.SideSign - Poss.SideOffset) * SkateMath::DecayAlpha(5.f, Dt);
 	const float Phase = Poss.DribblePhase;
 	const float PushOut = Phase < 0.25f
 		? 1.f - (1.f - Phase / 0.25f) * (1.f - Phase / 0.25f)
@@ -206,12 +265,13 @@ FSkateBallCarry FSkateBallControl::ComputeCarry(const FSkateBallControlTuning& T
 
 	// ---- Carry point on an orbit around the skater ----
 	const float Distance = SkateMath::Lerp(PT.CarryDistanceSlow, PT.CarryDistanceFast, SpeedRatio) + Amplitude * PushOut;
-	const float TargetAngle = Query.Heading.Yaw() + std::atan2(PT.CarrySideOffset, Distance);
+	const float TargetAngle = Query.Heading.Yaw() + std::atan2(Poss.SideOffset, Distance);
 	const float MaxSwing = PT.OrbitRate * SkateMath::DegToRad * Dt;
 	Poss.OrbitAngle = SkateMath::WrapAngle(Poss.OrbitAngle + SkateMath::Clamp(SkateMath::WrapAngle(TargetAngle - Poss.OrbitAngle), -MaxSwing, MaxSwing));
 	const float MinDistance = Tuning.BodyRadius + Query.BallRadius * 0.5f; // never inside the legs
 	Poss.OrbitDistance = SkateMath::Max(Poss.OrbitDistance + (Distance - Poss.OrbitDistance) * SkateMath::DecayAlpha(12.f, Dt), MinDistance);
-	const FSkateVec2 Target = Query.SkaterPos + FSkateVec2::FromYaw(Poss.OrbitAngle) * Poss.OrbitDistance;
+	// Next to a board the carry point stays in front of it: the ball rolls along the board, never pressed into it.
+	const FSkateVec2 Target = KeepOffWalls(Tuning, Query, Query.SkaterPos + FSkateVec2::FromYaw(Poss.OrbitAngle) * Poss.OrbitDistance);
 
 	// ---- Steering: follow the carry point's own motion + bounded correction of the error ----
 	const FSkateVec2 TargetVel = Poss.bHasPrevTarget ? (Target - Poss.CarryTarget) * (1.f / SkateMath::Max(Dt, 1.e-4f)) : Query.SkaterVel;
@@ -242,6 +302,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		*OutCarry = FSkateBallCarry();
 	}
 	State.Possession.TimeSinceLost += Dt;
+	State.Possession.TimeSinceBlock += Dt;
 	State.TimeSinceImpulse += Dt;
 	State.TimeSinceAction += Dt;
 	State.TimeSinceFail += Dt;
@@ -284,6 +345,12 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	}
 
 	OutReport = Evaluate(Tuning, Query);
+
+	// Which foot plays the next pass / shot. Chosen when the wind-up starts and kept through it.
+	if ((!State.bCharging && !State.bChargingPass) || Actions.bKickPressed || Actions.bPushPressed)
+	{
+		State.PlannedFoot = ChooseFoot(Tuning, Query, DesiredDirection(Query, 0.2f), State.PlannedFoot);
+	}
 	OutReport.bOnCooldown = State.TimeSinceImpulse < Tuning.TouchCooldown || State.TimeSinceAction < Tuning.NoTouchAfterAction;
 
 	// ---- Possession: lose it when the ball is knocked loose ----
@@ -364,6 +431,9 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 			Poss.OrbitAngle = Rel.SizeSquared() > 1.f ? Rel.Yaw() : Query.Heading.Yaw();
 			Poss.OrbitDistance = Rel.Size();
 			Poss.DribblePhase = 0.5f;
+			const float Lateral = Rel.Dot(Query.Heading.Right());
+			Poss.SideSign = SkateMath::Abs(Lateral) > 2.f ? SkateMath::Sign(Lateral) : (State.PlannedFoot == SkateFoot::Right ? 1.f : -1.f);
+			Poss.SideOffset = 0.f;
 			Poss.BlockedTime = 0.f;
 			Poss.TimeHeld = 0.f;
 			Poss.bHasPrevTarget = false;
@@ -391,6 +461,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	if (Impulse.IsValid())
 	{
 		Impulse.DeltaV = Impulse.NewBallVelocity - Query.BallVel;
+		Impulse.Foot = State.PlannedFoot;
 		State.TimeSinceImpulse = 0.f;
 		if (Impulse.Kind == ESkateImpulseKind::Kick || Impulse.Kind == ESkateImpulseKind::Push)
 		{
@@ -398,8 +469,10 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		}
 		if (Impulse.Kind == ESkateImpulseKind::BodyBlock)
 		{
-			// A ball that bounced off the legs is not trapped right away: it must actually bounce.
-			Poss.TimeSinceLost = 0.f;
+			// A fast ball that bounced off the legs is not trapped right away: it must actually bounce.
+			// A slow one (pinned at the board) may be trapped almost at once, so it never ping-pongs.
+			if (OutReport.RelativeSpeed > PT.AcquireMaxRelSpeed) { Poss.TimeSinceLost = 0.f; }
+			else { Poss.TimeSinceBlock = 0.f; }
 		}
 		State.LastKind = Impulse.Kind;
 		State.LastDeltaV = Impulse.DeltaV.Size();
@@ -455,8 +528,9 @@ FSkateBallImpulse FSkateBallControl::MakeKick(const FSkateBallControlTuning& Tun
 	const FSkateVec2 Dir = LimitDeviation(Normal, Desired, Tuning.KickMaxDeviation);
 	const float Speed = SkateMath::Lerp(Tuning.KickMinSpeed, Tuning.KickMaxSpeed, Impulse.Power)
 		+ Tuning.KickCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
-	// Keep any existing upward motion; add a small hop for strong low shots.
-	const float Vz = SkateMath::Max(Query.BallVel.Z, Tuning.KickLiftAtFullCharge * Impulse.Power);
+	// Soft shots stay on the ice; strong ones fly (lift grows smoothly with the charge). Keeps any upward motion.
+	const float LiftAlpha = SkateMath::SmoothStep01((Impulse.Power - Tuning.KickLiftStartCharge) / SkateMath::Max(1.f - Tuning.KickLiftStartCharge, 0.01f));
+	const float Vz = SkateMath::Max(Query.BallVel.Z, Tuning.KickLiftAtFullCharge * LiftAlpha);
 
 	Impulse.Direction = Dir;
 	Impulse.NewBallVelocity = FSkateVec3(Dir * Speed, Vz);

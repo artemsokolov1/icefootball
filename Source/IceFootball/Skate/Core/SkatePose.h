@@ -8,7 +8,8 @@
 //   carve        - body leans into the turn from lateral acceleration, blades edge
 //   brake        - lower body twists so both skates are across the travel (hockey stop),
 //                  lean back, arms open for balance
-//   touch / push / kick - right leg taps or swings (kick: wind-up while charging, swing on release)
+//   touch / push / kick - the playing leg (left or right, chosen by the ball control) taps or swings
+//                  (kick: wind-up while charging, swing on release); dribble taps alternate feet
 // Legs and arms are 2-bone chains (IK for the legs, so the blades stay on the ice).
 // Output is in skater-local space: X forward, Y right, Z up, origin on the ice under the capsule.
 #pragma once
@@ -53,7 +54,9 @@ struct FSkatePoseInput
 	float LateralAccel = 0.f;   // cm/s^2, + = to the right
 	float SlideSide = 1.f;      // sign of cross(heading, velocity): which side the hips turn to in a hockey stop
 	float KickCharge = 0.f;     // 0..1 while X is held
+	int ChargeFoot = 1;         // leg that winds up (0 = left, 1 = right)
 	ESkateImpulseKind SwingKind = ESkateImpulseKind::None;
+	int SwingFoot = 1;          // leg that taps / swings (0 = left, 1 = right)
 	float SwingTime = 100.f;    // s since the last touch / push / kick (or whiff)
 	float SwingPower = 0.f;
 };
@@ -96,7 +99,7 @@ struct FSkatePoseState
 	float Brake = 0.f;
 	float StrideAmp = 0.f;
 	float StridePhase = 0.f;
-	float Charge = 0.f;
+	float Charge[2] = { 0.f, 0.f }; // wind-up per leg [left, right]
 	float ArmOpen = 0.f;
 };
 

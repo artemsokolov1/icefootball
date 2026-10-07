@@ -49,11 +49,16 @@ public:
 	/** Time since a push/kick command was executed or whiffed, for the leg swing pose. */
 	float GetTimeSinceActionSwing() const { return TimeSinceSwing; }
 	ESkateImpulseKind GetLastSwingKind() const { return LastSwingKind; }
+	/** Leg of the latest tap / pass / shot and the leg that will play the next one (0 = left, 1 = right). */
+	int32 GetLastSwingFoot() const { return LastSwingFoot; }
+	int32 GetPlannedFoot() const { return ControlState.PlannedFoot; }
 	float GetLastSwingPower() const { return LastSwingPower; }
 
 private:
 	ASkateBall* FindBall();
 	bool HasLineOfSight(const ASkateCharacter& Skater, const ASkateBall& InBall) const;
+	/** Board faces around the skater (horizontal traces at ball height, arena boards only). */
+	void FindBoards(const ASkateCharacter& Skater, const ASkateBall& InBall, FSkateContactQuery& Query) const;
 	void DrawDebug(const ASkateCharacter& Skater, const FSkateContactQuery& Query) const;
 
 	TWeakObjectPtr<ASkateBall> Ball;
@@ -69,5 +74,6 @@ private:
 
 	float TimeSinceSwing = 100.f;
 	ESkateImpulseKind LastSwingKind = ESkateImpulseKind::None;
+	int32 LastSwingFoot = SkateFoot::Right;
 	float LastSwingPower = 0.f;
 };

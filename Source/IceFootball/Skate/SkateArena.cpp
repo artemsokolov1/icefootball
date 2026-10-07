@@ -225,7 +225,10 @@ void ASkateArena::BuildMaterials()
 	IceMaterial->FrictionCombineMode = EFrictionCombineMode::Min; // ice stays slippery against any other material
 
 	BoardMaterial = NewObject<UPhysicalMaterial>(this, TEXT("PM_Board"));
-	BoardMaterial->Friction = 0.3f;
+	// Low friction (Min combine): a spinning ball that hits the board must bounce off it, not climb it.
+	BoardMaterial->Friction = 0.05f;
+	BoardMaterial->bOverrideFrictionCombineMode = true;
+	BoardMaterial->FrictionCombineMode = EFrictionCombineMode::Min;
 	BoardMaterial->Restitution = Defaults.BoardRestitution;
 
 	NetMaterial = NewObject<UPhysicalMaterial>(this, TEXT("PM_Net"));
@@ -265,10 +268,16 @@ void ASkateArena::BuildRink()
 
 	// Boards with a coloured cap so the edge reads from above.
 	const FVector2D Half(L * 0.5f + T * 0.5f, W * 0.5f + T * 0.5f);
-	AddBox(FVector(Half.X, 0.f, H * 0.5f), FVector(T, W + 2.f * T, H), BoardColor, BoardMaterial);
-	AddBox(FVector(-Half.X, 0.f, H * 0.5f), FVector(T, W + 2.f * T, H), BoardColor, BoardMaterial);
-	AddBox(FVector(0.f, Half.Y, H * 0.5f), FVector(L, T, H), BoardColor, BoardMaterial);
-	AddBox(FVector(0.f, -Half.Y, H * 0.5f), FVector(L, T, H), BoardColor, BoardMaterial);
+	UStaticMeshComponent* Boards[] = {
+		AddBox(FVector(Half.X, 0.f, H * 0.5f), FVector(T, W + 2.f * T, H), BoardColor, BoardMaterial),
+		AddBox(FVector(-Half.X, 0.f, H * 0.5f), FVector(T, W + 2.f * T, H), BoardColor, BoardMaterial),
+		AddBox(FVector(0.f, Half.Y, H * 0.5f), FVector(L, T, H), BoardColor, BoardMaterial),
+		AddBox(FVector(0.f, -Half.Y, H * 0.5f), FVector(L, T, H), BoardColor, BoardMaterial),
+	};
+	for (UStaticMeshComponent* Board : Boards)
+	{
+		Board->ComponentTags.Add(BoardTag());
+	}
 	const float CapH = 6.f;
 	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(FTransform(FRotator::ZeroRotator, FVector(Half.X, 0.f, H + CapH * 0.5f), FVector(T, W + 2.f * T, CapH) / 100.f));
 	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(FTransform(FRotator::ZeroRotator, FVector(-Half.X, 0.f, H + CapH * 0.5f), FVector(T, W + 2.f * T, CapH) / 100.f));
