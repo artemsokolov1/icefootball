@@ -70,6 +70,10 @@ struct FSkateMovementTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "100"))
 	float BoostMaxSpeed = 1000.f;
 
+	/** Backward skating reaches this fraction of the forward speeds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.1", ClampMax = "1"))
+	float BackwardSpeedScale = 0.6f;
+
 	/** Time constant (s) of the speed approach to the stick's target speed. ~3x this is the time to 95% of top speed.
 	 *  Acceleration is highest at the start (fast first response) and fades near the target (smooth top-out). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.05"))

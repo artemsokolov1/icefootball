@@ -101,6 +101,8 @@ private:
 	void OnBrakeReleased(const FInputActionValue& Value);
 	void OnBoost(const FInputActionValue& Value);
 	void OnBoostReleased(const FInputActionValue& Value);
+	void OnBackward(const FInputActionValue& Value);
+	void OnBackwardReleased(const FInputActionValue& Value);
 	void OnSlowPressed(const FInputActionValue& Value);
 	void OnSlowReleased(const FInputActionValue& Value);
 
@@ -127,6 +129,7 @@ private:
 	UInputAction* IA_Slow = nullptr;
 	UInputAction* IA_Brake = nullptr;
 	UInputAction* IA_Boost = nullptr;
+	UInputAction* IA_Backward = nullptr;
 	UInputAction* IA_Push = nullptr;
 	UInputAction* IA_Kick = nullptr;
 	UInputAction* IA_Reset = nullptr;
@@ -158,6 +161,7 @@ private:
 	bool bSlowHeld = false;
 	float BrakeValue = 0.f;
 	float BoostValue = 0.f;
+	bool bBackwardHeld = false;
 	bool bPushEdge = false;
 	bool bPushReleaseEdge = false;
 	bool bKickPressEdge = false;

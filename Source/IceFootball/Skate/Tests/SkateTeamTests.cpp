@@ -75,6 +75,8 @@ namespace SkateTeamTestsDetail
 		int DoubleImpulses = 0;
 		int Controlled = 0;
 		int Team[2] = { 0, 0 };
+		/** AI role: the chaser goes for the ball, the other one defends / supports. */
+		bool Chaser[2] = { true, true };
 
 		bool bKeeper = false;
 		FSkateKeeperTuning KT;
@@ -154,7 +156,7 @@ namespace SkateTeamTestsDetail
 			View.GoalHalfWidth = Goal.HalfWidth;
 			View.bBallIsMyPass = LastKind == ESkateImpulseKind::Push && LastSource == Index;
 			View.bBallIsPassToMe = LastKind == ESkateImpulseKind::Push && LastSource != Index;
-			View.bChaser = true;
+			View.bChaser = Chaser[Index];
 			View.bMateValid = Team[1 - Index] == Team[Index];
 			View.MatePos = S[1 - Index].Pos;
 			View.MateVel = S[1 - Index].State.Velocity;
@@ -538,6 +540,60 @@ namespace SkateTeamTestsDetail
 		});
 		R.bPassed = GotIt > 0.f && GotIt < 3.5f && Sim.S[1].BodyBlocks == 0;
 		R.Details = Fmt("resting ball 5.6 m away (behind the teammate): fetched and trapped after %.2fs, bounces %d", GotIt, Sim.S[1].BodyBlocks);
+		Out.push_back(R);
+	}
+
+	void TestSkatesBackwards(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Move.SkatesBackwardsFacingAway");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(-1.f, 0.f)); // faces -X ...
+		Sim.Place(1, FSkateVec2(-2000.f, -1200.f), FSkateVec2(1.f, 0.f));
+		Sim.BallPos = FSkateVec3(2000.f, 1200.f, Sim.T.BallPhysics.Radius);
+		Sim.Run(2.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0] = Stick(FSkateVec2(1.f, 0.f), 1.f); // ... and pushes towards +X with the backward button held
+			In[0].bBackward = true;
+		});
+		const FSkateVec2 V = Sim.S[0].State.Velocity;
+		const FSkateVec2 Hd = Sim.S[0].State.Heading;
+		const float Forward = Sim.T.Movement.MaxSpeed;
+		R.bPassed = V.X > 0.4f * Forward && V.X < 0.75f * Forward && Hd.X < -0.9f && Sim.S[0].Pos.X > 300.f;
+		R.Details = Fmt("stick +X with the backward button: after 2 s moving at %.0f cm/s along +X (forward max %.0f), blades point %.2f along X, travelled %.0f cm",
+			V.X, Forward, Hd.X, Sim.S[0].Pos.X);
+		Out.push_back(R);
+	}
+
+	void TestDefenderFacesTheBall(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.DefenderRetreatsFacingTheBall");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Chaser[1] = false; // the other opponent is pressing: this one defends
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));    // carrier
+		Sim.Place(1, FSkateVec2(-600.f, 0.f), FSkateVec2(1.f, 0.f)); // defender, between the ball and its goal at -X
+		Sim.GiveBall(0, Dt);
+		Sim.S[1].bAI = true;
+		int FramesMoving = 0;
+		int FramesBackTurned = 0;
+		Sim.Run(2.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			const FSkateVec2 ToBall = (Sim.BallPos.XY() - Sim.S[1].Pos).GetSafeNormal();
+			if (Sim.S[1].State.Velocity.Size() > 150.f)
+			{
+				++FramesMoving;
+				FramesBackTurned += Sim.S[1].State.Heading.Dot(ToBall) < 0.f ? 1 : 0;
+			}
+		});
+		const FSkateVec2 ToBall = (Sim.BallPos.XY() - Sim.S[1].Pos).GetSafeNormal();
+		const bool bRetreated = Sim.S[1].Pos.X < -900.f;
+		R.bPassed = Sim.S[1].Mode == ESkateSkaterMode::Defend && bRetreated && FramesMoving > 30 && FramesBackTurned == 0
+			&& Sim.S[1].State.Heading.Dot(ToBall) > 0.7f;
+		R.Details = Fmt("defender drops back from x = -600 to %.0f (mode %s): moving frames %d, frames with the back to the ball %d, final facing %.2f",
+			Sim.S[1].Pos.X, SkateSkaterModeName(Sim.S[1].Mode), FramesMoving, FramesBackTurned, Sim.S[1].State.Heading.Dot(ToBall));
 		Out.push_back(R);
 	}
 
@@ -990,6 +1046,8 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestBodyCheck(Out);
 	TestNoCheckWithoutButton(Out);
 	TestNoCheckBetweenTeammates(Out);
+	TestSkatesBackwards(Out);
+	TestDefenderFacesTheBall(Out);
 	TestOpponentSteals(Out);
 	TestOpponentAttacksAndShoots(Out);
 	TestOpponentDodgesBlocker(Out);

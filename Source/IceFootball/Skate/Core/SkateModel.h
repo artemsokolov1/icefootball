@@ -40,6 +40,8 @@ struct FSkateMoveInput
 	float Brake = 0.f;
 	/** Boost 0..1 (RT). */
 	float Boost = 0.f;
+	/** Skate backwards: the blades point away from the stick, thrust goes the stick's way (defenders face the play). */
+	bool bBackward = false;
 };
 
 struct FSkateMoveState

@@ -29,6 +29,8 @@ struct FSkateFrameInput
 	float CameraYawDeg = 0.f;
 	float BrakeRaw = 0.f;
 	float BoostRaw = 0.f;
+	/** Skate backwards (B / Left Ctrl held). */
+	bool bBackward = false;
 	bool bPushPressed = false;
 	bool bPushReleased = false;
 	bool bKickPressed = false;

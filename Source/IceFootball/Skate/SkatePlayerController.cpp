@@ -97,6 +97,10 @@ void ASkatePlayerController::BuildInputMappings()
 	Imc->MapKey(IA_Boost, EKeys::Gamepad_RightTriggerAxis);
 	Imc->MapKey(IA_Boost, EKeys::LeftShift);
 
+	IA_Backward = MakeAction(TEXT("IA_Skate_Backward"), EInputActionValueType::Boolean);
+	Imc->MapKey(IA_Backward, EKeys::Gamepad_FaceButton_Right);
+	Imc->MapKey(IA_Backward, EKeys::LeftControl);
+
 	// ---- Ball ----
 	IA_Push = MakeAction(TEXT("IA_Skate_Push"), EInputActionValueType::Boolean);
 	Imc->MapKey(IA_Push, EKeys::Gamepad_FaceButton_Bottom);
@@ -169,6 +173,8 @@ void ASkatePlayerController::SetupInputComponent()
 	Eic->BindAction(IA_Brake, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBrakeReleased);
 	Eic->BindAction(IA_Boost, ETriggerEvent::Triggered, this, &ASkatePlayerController::OnBoost);
 	Eic->BindAction(IA_Boost, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBoostReleased);
+	Eic->BindAction(IA_Backward, ETriggerEvent::Started, this, &ASkatePlayerController::OnBackward);
+	Eic->BindAction(IA_Backward, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBackwardReleased);
 
 	Eic->BindAction(IA_Push, ETriggerEvent::Started, this, &ASkatePlayerController::OnPushPressed);
 	Eic->BindAction(IA_Push, ETriggerEvent::Completed, this, &ASkatePlayerController::OnPushReleased);
@@ -652,6 +658,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		FrameInput.CameraYawDeg = CameraRig ? CameraRig->GetControlYaw() : 0.f;
 		FrameInput.BrakeRaw = BrakeValue;
 		FrameInput.BoostRaw = BoostValue;
+		FrameInput.bBackward = bBackwardHeld;
 		FrameInput.bPushPressed = bPushEdge;
 		FrameInput.bPushReleased = bPushReleaseEdge;
 		FrameInput.bKickPressed = bKickPressEdge;
@@ -711,6 +718,16 @@ void ASkatePlayerController::OnBrake(const FInputActionValue& Value)
 void ASkatePlayerController::OnBrakeReleased(const FInputActionValue& Value)
 {
 	BrakeValue = 0.f;
+}
+
+void ASkatePlayerController::OnBackward(const FInputActionValue& Value)
+{
+	bBackwardHeld = true;
+}
+
+void ASkatePlayerController::OnBackwardReleased(const FInputActionValue& Value)
+{
+	bBackwardHeld = false;
 }
 
 void ASkatePlayerController::OnBoost(const FInputActionValue& Value)

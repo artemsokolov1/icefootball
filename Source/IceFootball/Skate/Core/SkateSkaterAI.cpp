@@ -115,6 +115,12 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		{
 			D.Move.Boost = Tuning.BoostAmount;
 		}
+		// Retreating from the ball: skate backwards, never turn the back on the play.
+		const FSkateVec2 ToBall = (View.BallPos - View.Pos).GetSafeNormal(View.Heading);
+		if (D.Move.Magnitude > 0.1f && D.Move.Direction.Dot(ToBall) < -0.2f)
+		{
+			D.Move.bBackward = true;
+		}
 	};
 
 	if (!View.bBallValid)

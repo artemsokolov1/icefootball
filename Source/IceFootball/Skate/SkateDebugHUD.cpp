@@ -418,8 +418,8 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 	CursorY = Canvas->ClipY - 7.f * LineHeight - 8.f;
 	Line(TEXT("World: green = velocity, blue = blades, yellow = stick, orange = lateral accel,"), Dim);
 	Line(TEXT("       reach zone green/cyan = trap/A-X allowed, grey = not reachable, yellow = carry point, magenta = last impulse"), Dim);
-	Line(TEXT("Pad: LS move | LT brake | RT boost | A push | X hold/release kick (no ball: body check) | Y reset | RB ball to feet"), Dim);
+	Line(TEXT("Pad: LS move | LT brake | RT boost | B skate backwards | A push | X hold/release kick (no ball: body check) | Y reset | RB ball to feet"), Dim);
 	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R preset | D-pad Down FPS cap | Menu ball on/off"), Dim);
-	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J push | K kick / check | R reset | T ball"), Dim);
+	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | LCtrl backwards | J push | K kick / check | R reset | T ball"), Dim);
 	Line(TEXT("      F1 debug | F2 camera | 1/2/3 preset | F3 FPS cap | F4 ball on/off"), Dim);
 }

@@ -152,7 +152,7 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 
 	if (!State.bReverseStop)
 	{
-		State.bReverseStop = bHasStick && Speed > Tuning.ReverseMinSpeed && StickVsTravel < Tuning.ReverseIntentDot
+		State.bReverseStop = bHasStick && !Input.bBackward && Speed > Tuning.ReverseMinSpeed && StickVsTravel < Tuning.ReverseIntentDot
 			&& State.bFlickIntoBack && State.TimeSinceStickFlick <= Tuning.ReverseFlickWindow;
 	}
 	else
@@ -171,6 +171,12 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 		{
 			// Snap turn: the blades swing round to the new direction while the skater stops and pushes off.
 			Heading = Heading.RotatedTowards(StickDir, Tuning.ReverseTurnRate * SkateMath::DegToRad * H);
+			State.TurnSign = 0.f;
+		}
+		else if (bHasStick && Input.bBackward)
+		{
+			// Backwards: the blades turn to point away from the stick; the skater keeps facing what it retreats from.
+			Heading = Heading.RotatedTowards(StickDir * -1.f, Rate * H);
 			State.TurnSign = 0.f;
 		}
 		else if (bHasStick)
@@ -254,24 +260,28 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 	bool bOverspeed = false;
 	if (bHasStick)
 	{
-		const float Align = Heading.Dot(StickDir);
+		// Thrust axis: along the blades, or against them when skating backwards.
+		const float Dir = Input.bBackward ? -1.f : 1.f;
+		const float Align = Heading.Dot(StickDir) * Dir;
 		const float MinDot = SkateMath::Min(Tuning.ThrustAlignMinDot, 0.95f);
 		// Pushing while the blades still turn towards the stick (crossovers): never below TurnThrustScale.
 		const float AlignScale = SkateMath::Max(SkateMath::Clamp01((Align - MinDot) / (1.f - MinDot)), Tuning.TurnThrustScale);
-		const float VMax = SkateMath::Lerp(Tuning.MaxSpeed, Tuning.BoostMaxSpeed, Boost);
+		const float VMax = SkateMath::Lerp(Tuning.MaxSpeed, Tuning.BoostMaxSpeed, Boost) * (Input.bBackward ? Tuning.BackwardSpeedScale : 1.f);
 		const float Tau = SkateMath::Max(SkateMath::Lerp(Tuning.ThrustTimeConstant, Tuning.BoostTimeConstant, Boost), 0.01f);
 		const float VTarget = VMax * Mag;
-		if (VLong < VTarget)
+		float VAxis = VLong * Dir;
+		if (VAxis < VTarget)
 		{
 			Pushing = AlignScale * (1.f - Brake);
-			const float Dv = (VTarget - VLong) * SkateMath::DecayAlpha(1.f / Tau, H) * Pushing;
-			VLong += Dv;
+			const float Dv = (VTarget - VAxis) * SkateMath::DecayAlpha(1.f / Tau, H) * Pushing;
+			VAxis += Dv;
 			Acc.Thrust += Dv;
 		}
 		else
 		{
-			bOverspeed = VLong > VTarget + 1.f;
+			bOverspeed = VAxis > VTarget + 1.f;
 		}
+		VLong = VAxis * Dir;
 	}
 	{
 		float FrictionDecel = (Tuning.GlideFriction + Tuning.GlideDrag * SkateMath::Abs(VLong)) * (1.f - Pushing);

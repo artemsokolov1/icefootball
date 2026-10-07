@@ -156,6 +156,7 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 	MoveInput.Magnitude = LastStick.Magnitude;
 	MoveInput.Brake = LastBrake;
 	MoveInput.Boost = LastBoost;
+	MoveInput.bBackward = Input.bBackward;
 	SkateMovement->SetSkateInput(IsStunned() ? FSkateMoveInput() : MoveInput);
 
 	if (BallControl)
