@@ -8,6 +8,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Skate/Core/SkateInput.h"
+#include "Skate/Core/SkateModel.h"
 #include "Skate/Core/SkateTuning.h"
 #include "SkateCharacter.generated.h"
 

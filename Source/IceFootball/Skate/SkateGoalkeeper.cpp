@@ -42,6 +42,11 @@ ASkateGoalkeeper::ASkateGoalkeeper()
 	HandLocal[1] = FVector(28.f, 48.f, 22.f);
 }
 
+void ASkateGoalkeeper::SetArena(ASkateArena* InArena)
+{
+	Arena = InArena;
+}
+
 void ASkateGoalkeeper::BeginPlay()
 {
 	Super::BeginPlay();
@@ -116,6 +121,7 @@ void ASkateGoalkeeper::ResetKeeper()
 			if (ASkateBall* Ball = Rink->GetBall())
 			{
 				Ball->ClearHolder(this);
+				Ball->DropHold();
 			}
 		}
 	}

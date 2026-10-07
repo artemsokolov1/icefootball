@@ -49,6 +49,8 @@ public:
 	/** Keeper: the ball sits in the hands (teleported, no velocity, no gravity) until released. */
 	void HoldAt(const FVector& Location);
 	void ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source);
+	/** Lets go of a held ball where it is (no impulse): gravity and ice friction apply again. */
+	void DropHold();
 
 	/** Seconds since the last gameplay impulse (from anyone). */
 	float GetTimeSinceGameplayImpulse() const;

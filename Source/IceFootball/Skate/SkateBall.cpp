@@ -127,6 +127,16 @@ void ASkateBall::ReleaseHold(const FVector& Location, const FVector& Velocity, c
 	ApplyGameplayVelocity(Velocity, ESkateImpulseKind::Push, Source);
 }
 
+void ASkateBall::DropHold()
+{
+	if (bHeldInHands)
+	{
+		bHeldInHands = false;
+		BallMesh->SetEnableGravity(true);
+		BallMesh->WakeRigidBody();
+	}
+}
+
 float ASkateBall::GetTimeSinceGameplayImpulse() const
 {
 	const UWorld* World = GetWorld();

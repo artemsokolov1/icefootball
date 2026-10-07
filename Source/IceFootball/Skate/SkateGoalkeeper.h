@@ -27,7 +27,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	void SetArena(ASkateArena* InArena) { Arena = InArena; }
+	void SetArena(ASkateArena* InArena);
 	/** Back to the middle of the goal, ball released (scene reset). */
 	void ResetKeeper();
 
