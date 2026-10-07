@@ -5,7 +5,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/../../Source/IceFootball/Skate"
 CXX="${CXX:-g++}"
-"$CXX" -std=c++20 -O2 -Wall -Wextra -Wshadow -Werror \
+"$CXX" -std=c++20 -O2 -Wall -Wextra -Wshadow -Werror -include "$HERE/stubs/CoreMinimal.h" \
   -I"$HERE/stubs" -I"$SRC/Core" -I"$SRC/Tests" \
   "$SRC/Core/SkateInput.cpp" "$SRC/Core/SkateModel.cpp" "$SRC/Core/SkateBallControl.cpp" \
   "$SRC/Core/SkateTuningPresets.cpp" "$SRC/Tests/SkateCoreTests.cpp" "$SRC/Tests/SkateCourseTests.cpp" "$SRC/Tests/SkatePoseTests.cpp" "$SRC/Core/SkatePose.cpp" "$HERE/main.cpp" \

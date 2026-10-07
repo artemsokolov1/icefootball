@@ -182,17 +182,17 @@ void RunSkatePoseTests(std::vector<FSkateTestResult>& Out)
 					SwingTime += Step;
 					if (Control.Possession.TouchPulseCount != TapsBefore) { SwingTime = 0.f; SwingKind = ESkateImpulseKind::Touch; }
 
-					FSkatePoseInput PI;
-					PI.SpeedRatio = Move.Velocity.Size() / T.Movement.MaxSpeed;
-					PI.PushAmount = Move.PushAmount;
-					PI.ThrustAccel = Move.ThrustAccel;
-					PI.BrakeAmount = SkateMath::Clamp01(Move.BrakeDecel / T.Movement.BrakeDecel);
-					PI.SkidAmount = SkateMath::Clamp01(Move.ScrubDecel / 900.f);
-					PI.LateralAccel = Move.LateralAccel;
-					PI.SlideSide = Move.Heading.Cross(Move.Velocity) >= 0.f ? 1.f : -1.f;
-					PI.SwingKind = SwingKind;
-					PI.SwingTime = SwingTime;
-					const FSkatePose P = FSkatePoseSolver::Update(T.Anim, PI, Step, PoseState);
+					FSkatePoseInput PoseIn;
+					PoseIn.SpeedRatio = Move.Velocity.Size() / T.Movement.MaxSpeed;
+					PoseIn.PushAmount = Move.PushAmount;
+					PoseIn.ThrustAccel = Move.ThrustAccel;
+					PoseIn.BrakeAmount = SkateMath::Clamp01(Move.BrakeDecel / T.Movement.BrakeDecel);
+					PoseIn.SkidAmount = SkateMath::Clamp01(Move.ScrubDecel / 900.f);
+					PoseIn.LateralAccel = Move.LateralAccel;
+					PoseIn.SlideSide = Move.Heading.Cross(Move.Velocity) >= 0.f ? 1.f : -1.f;
+					PoseIn.SwingKind = SwingKind;
+					PoseIn.SwingTime = SwingTime;
+					const FSkatePose P = FSkatePoseSolver::Update(T.Anim, PoseIn, Step, PoseState);
 					if (Time > 3.f)
 					{
 						for (int Side = 0; Side < 2; ++Side)
