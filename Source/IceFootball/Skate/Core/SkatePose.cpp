@@ -57,14 +57,16 @@ FSkatePose FSkatePoseSolver::Update(const FSkateAnimTuning& Tuning, const FSkate
 	FSkatePose Pose;
 
 	// ---- Smoothed layers from the real motion ----
-	const float BrakeTarget = SkateMath::Clamp01(SkateMath::Max(In.BrakeAmount, In.SkidAmount * 0.6f));
+	// Small skids during carving must not trigger the hockey-stop pose (it would flicker); only real skids do.
+	const float SkidPose = SkateMath::Clamp01((In.SkidAmount - 0.25f) / 0.75f);
+	const float BrakeTarget = SkateMath::Clamp01(SkateMath::Max(In.BrakeAmount, SkidPose * 0.6f));
 	const float PushTarget = In.PushAmount > 0.05f ? In.PushAmount * SkateMath::Clamp(In.ThrustAccel / 400.f, 0.35f, 1.f) : 0.f;
 	const float LeanTarget = SkateMath::Clamp(In.LateralAccel / 980.f * Tuning.LeanPerG, -Tuning.MaxLean, Tuning.MaxLean);
 	const bool bKickSwing = In.SwingKind == ESkateImpulseKind::Kick && In.SwingTime < KickSwingTime;
 
-	if (S.Brake < 0.05f)
+	if (S.Brake < 0.02f && BrakeTarget > 0.f)
 	{
-		S.TwistSign = In.SlideSide >= 0.f ? 1.f : -1.f; // chosen once per stop
+		S.TwistSign = In.SlideSide >= 0.f ? 1.f : -1.f; // chosen once, when a stop begins
 	}
 	const float SpeedRatio = SkateMath::Clamp(In.SpeedRatio, 0.f, 1.4f);
 	S.Brake = Approach(S.Brake, BrakeTarget, Dt, Tuning.PoseSmoothTime);
@@ -128,9 +130,13 @@ FSkatePose FSkatePoseSolver::Update(const FSkateAnimTuning& Tuning, const FSkate
 		case ESkateImpulseKind::Touch:
 			if (T < TouchSwingTime)
 			{
+				// Soft dribble tap: sin^2 profile (starts and ends at rest), smaller in hard turns
+				// where the legs are busy carving.
 				const float U = T / TouchSwingTime;
-				SwingX = 24.f * std::sin(SkateMath::Pi * U);
-				SwingLift = 3.f * std::sin(SkateMath::Pi * U);
+				const float Shape = std::sin(SkateMath::Pi * U) * std::sin(SkateMath::Pi * U);
+				const float TurnFade = 1.f - 0.8f * SkateMath::Clamp01(SkateMath::Abs(S.LeanRight) / SkateMath::Max(Tuning.MaxLean, 1.f));
+				SwingX = 16.f * Shape * TurnFade;
+				SwingLift = 2.f * Shape * TurnFade;
 			}
 			break;
 		default:

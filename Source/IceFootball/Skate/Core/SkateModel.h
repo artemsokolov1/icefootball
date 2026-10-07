@@ -53,6 +53,10 @@ struct FSkateMoveState
 	bool bPrevStick = false;
 	float TimeSinceStickFlick = 100.f;
 	float TurnSign = 0.f;
+	/** Smoothed angular speed of the stick itself (rad/s, + = towards the right). */
+	float StickSpin = 0.f;
+	FSkateVec2 PrevFrameStickDir;
+	bool bPrevFrameStick = false;
 
 	// ---- Telemetry of the last Step() call (averages over the step) ----
 	ESkateMovePhase Phase = ESkateMovePhase::Idle;

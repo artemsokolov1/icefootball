@@ -111,5 +111,5 @@ public:
 
 	static constexpr float KickSwingTime = 0.26f;
 	static constexpr float PushSwingTime = 0.18f;
-	static constexpr float TouchSwingTime = 0.16f;
+	static constexpr float TouchSwingTime = 0.3f;
 };

@@ -1,5 +1,6 @@
 #include "SkatePoseTests.h"
 
+#include "../Core/SkateModel.h"
 #include "../Core/SkatePose.h"
 #include "../Core/SkateTuningPresets.h"
 
@@ -126,4 +127,100 @@ void RunSkatePoseTests(std::vector<FSkateTestResult>& Out)
 			PL.LeanRightDeg, PL.Chest.Y, PR.LeanRightDeg, PR.Chest.Y, T.Anim.MaxLean, BladeAcross);
 		Out.push_back(L);
 	}
+	// Full chain as in the game: skating model + ball possession + pose, stick spun around with the ball.
+	// Feet must move smoothly (no per-frame jumps), the lean must not flip, the hips must not flick sides.
+	{
+		FSkateTestResult J("Pose.SmoothWhileSpinningWithBall");
+		std::string Info;
+		bool bOk = true;
+		for (float SpinDeg : { 0.f, 180.f, 360.f, 720.f, -540.f })
+		{
+			for (float Fps : { 30.f, 60.f })
+			{
+				const float Step = 1.f / Fps;
+				FSkateMoveState Move;
+				Move.Velocity = FSkateVec2(T.Movement.MaxSpeed, 0.f);
+				FSkateVec2 Pos;
+				FSkateVec3 BallPos(FSkateVec2(42.f, 0.f), T.BallPhysics.Radius);
+				FSkateVec3 BallVel;
+				FSkateBallControlState Control;
+				FSkateContactReport Report;
+				FSkatePoseState PoseState;
+				float SwingTime = 100.f;
+				ESkateImpulseKind SwingKind = ESkateImpulseKind::None;
+				FSkateVec3 PrevAnkle[2];
+				float PrevLean = 0.f;
+				float MaxFootSpeed = 0.f;  // cm/s of an ankle relative to the skater
+				float MaxLeanRate = 0.f;   // deg/s
+				int LeanSignFlips = 0;
+				int TwistFlips = 0;
+				float PrevTwistSign = PoseState.TwistSign;
+				for (float Time = 0.f; Time < 8.f; Time += Step)
+				{
+					FSkateMoveInput In;
+					In.Direction = Time < 2.f ? FSkateVec2(1.f, 0.f) : FSkateVec2::FromYaw(SpinDeg * SkateMath::DegToRad * (Time - 2.f));
+					In.Magnitude = 1.f;
+					FSkateModel::Step(T.Movement, In, Step, Move);
+					Pos += Move.Velocity * Step;
+
+					FSkateContactQuery Q;
+					Q.SkaterPos = Pos;
+					Q.SkaterVel = Move.Velocity;
+					Q.Heading = Move.Heading;
+					Q.SkaterMaxSpeed = T.Movement.MaxSpeed;
+					Q.StickDir = In.Direction;
+					Q.StickMag = In.Magnitude;
+					Q.bHasBall = true;
+					Q.BallPos = BallPos;
+					Q.BallVel = BallVel;
+					Q.BallRadius = T.BallPhysics.Radius;
+					const int TapsBefore = Control.Possession.TouchPulseCount;
+					FSkateBallCarry Carry;
+					const FSkateBallImpulse Imp = FSkateBallControl::Update(T.BallControl, Q, FSkateBallActionInput(), Step, Control, Report, &Carry);
+					BallVel = Imp.IsValid() ? Imp.NewBallVelocity : (Carry.bActive ? Carry.Velocity : BallVel);
+					BallPos = BallPos + BallVel * Step;
+					SwingTime += Step;
+					if (Control.Possession.TouchPulseCount != TapsBefore) { SwingTime = 0.f; SwingKind = ESkateImpulseKind::Touch; }
+
+					FSkatePoseInput PI;
+					PI.SpeedRatio = Move.Velocity.Size() / T.Movement.MaxSpeed;
+					PI.PushAmount = Move.PushAmount;
+					PI.ThrustAccel = Move.ThrustAccel;
+					PI.BrakeAmount = SkateMath::Clamp01(Move.BrakeDecel / T.Movement.BrakeDecel);
+					PI.SkidAmount = SkateMath::Clamp01(Move.ScrubDecel / 900.f);
+					PI.LateralAccel = Move.LateralAccel;
+					PI.SlideSide = Move.Heading.Cross(Move.Velocity) >= 0.f ? 1.f : -1.f;
+					PI.SwingKind = SwingKind;
+					PI.SwingTime = SwingTime;
+					const FSkatePose P = FSkatePoseSolver::Update(T.Anim, PI, Step, PoseState);
+					if (Time > 3.f)
+					{
+						for (int Side = 0; Side < 2; ++Side)
+						{
+							MaxFootSpeed = SkateMath::Max(MaxFootSpeed, (P.Ankle[Side] - PrevAnkle[Side]).Size() / Step);
+						}
+						MaxLeanRate = SkateMath::Max(MaxLeanRate, SkateMath::Abs(PoseState.LeanRight - PrevLean) / Step);
+						LeanSignFlips += (SpinDeg != 0.f && PoseState.LeanRight * PrevLean < 0.f) ? 1 : 0;
+						TwistFlips += PoseState.TwistSign != PrevTwistSign ? 1 : 0;
+					}
+					PrevAnkle[0] = P.Ankle[0];
+					PrevAnkle[1] = P.Ankle[1];
+					PrevLean = PoseState.LeanRight;
+					PrevTwistSign = PoseState.TwistSign;
+				}
+				// A push stroke moves a foot ~110 cm/s and a soft dribble tap ~170 cm/s; 250 cm/s means a visible jerk.
+				const bool bCase = MaxFootSpeed < 250.f && LeanSignFlips == 0 && TwistFlips == 0 && MaxLeanRate < 200.f && Control.Possession.bPossessed;
+				bOk &= bCase;
+				if (Fps == 60.f || !bCase)
+				{
+					Info += Fmt("%+.0f deg/s@%.0f: foot %.0f cm/s, lean rate %.0f deg/s, lean flips %d, hip flips %d%s; ",
+						SpinDeg, Fps, MaxFootSpeed, MaxLeanRate, LeanSignFlips, TwistFlips, Control.Possession.bPossessed ? "" : " LOST BALL");
+				}
+			}
+		}
+		J.bPassed = bOk;
+		J.Details = Info;
+		Out.push_back(J);
+	}
 }
+

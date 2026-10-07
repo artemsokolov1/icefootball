@@ -346,9 +346,9 @@ struct FSkateBallControlTuning
 
 	// ---- Push (A) ----
 
-	/** Ball speed of a short push (cm/s) from standstill. */
+	/** Ball speed of a pass / push (cm/s) from standstill. Even a light tap of A gives the full pass. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float PushSpeed = 650.f;
+	float PushSpeed = 1150.f;
 
 	/** Fraction of the skater's speed along the push direction added to the push. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "2"))
@@ -368,12 +368,12 @@ struct FSkateBallControlTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0.1"))
 	float KickMaxChargeTime = 0.8f;
 
-	/** Ball speed (cm/s) at zero / full charge. */
+	/** Ball speed (cm/s) at zero charge (a quick tap of X is already a real shot) / at full charge. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
-	float KickMinSpeed = 1000.f;
+	float KickMinSpeed = 1800.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
-	float KickMaxSpeed = 2600.f;
+	float KickMaxSpeed = 3200.f;
 
 	/** Fraction of the skater's speed along the kick direction added to the kick. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "2"))
@@ -445,8 +445,8 @@ struct FSkateBallPhysicsTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics", meta = (ClampMin = "0", ClampMax = "1"))
 	float BoardRestitution = 0.62f;
 
-	/** Continuous collision detection on the ball only. Max kick ~2600 cm/s moves ~43 cm per 60 FPS frame,
-	 *  about 2x the ball diameter, so without CCD fast shots could tunnel through thin geometry. */
+	/** Continuous collision detection on the ball only. Max kick ~3200 cm/s (+ carry) moves ~60 cm per 60 FPS frame,
+	 *  almost 3x the ball diameter, so without CCD fast shots could tunnel through thin geometry. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "BallPhysics")
 	bool bUseCCD = true;
 };

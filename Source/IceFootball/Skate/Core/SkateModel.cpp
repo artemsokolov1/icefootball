@@ -56,6 +56,21 @@ void FSkateModel::Step(const FSkateMovementTuning& Tuning, const FSkateMoveInput
 	NumSteps = NumSteps < 1 ? 1 : (NumSteps > 256 ? 256 : NumSteps);
 	const float H = Dt / static_cast<float>(NumSteps);
 
+	// How fast the player is spinning the stick (per frame, smoothed ~80 ms). Used to keep a turn going in the
+	// direction the stick spins when it spins faster than the skater can turn.
+	{
+		const bool bStick = Input.Magnitude > 0.f && Input.Direction.SizeSquared() > 0.25f;
+		const FSkateVec2 Dir = bStick ? Input.Direction.GetSafeNormal() : FSkateVec2();
+		float Rate = 0.f;
+		if (bStick && State.bPrevFrameStick)
+		{
+			Rate = State.PrevFrameStickDir.SignedAngleTo(Dir) / Dt;
+		}
+		State.StickSpin += (Rate - State.StickSpin) * SkateMath::DecayAlpha(1.f / 0.08f, Dt);
+		State.PrevFrameStickDir = Dir;
+		State.bPrevFrameStick = bStick;
+	}
+
 	FAccum Acc;
 	State.bBrakeReversalFault = false;
 	for (int Index = 0; Index < NumSteps; ++Index)
@@ -162,7 +177,13 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 			// Commit to a turn direction: once turning one way, a stick that keeps sweeping around (and ends up
 			// more than ~100 deg ahead) continues the same turn instead of flipping to the "shorter" side.
 			float Angle = Heading.SignedAngleTo(StickDir);
-			if (SkateMath::Abs(Angle) > 100.f * SkateMath::DegToRad && State.TurnSign != 0.f && SkateMath::Sign(Angle) != State.TurnSign)
+			if (SkateMath::Abs(State.StickSpin) > Rate && SkateMath::Abs(Angle) > 10.f * SkateMath::DegToRad)
+			{
+				// The stick spins faster than the blades can turn: keep turning the way it spins, at full rate.
+				State.TurnSign = SkateMath::Sign(State.StickSpin);
+				Angle = State.TurnSign * SkateMath::Pi;
+			}
+			else if (SkateMath::Abs(Angle) > 100.f * SkateMath::DegToRad && State.TurnSign != 0.f && SkateMath::Sign(Angle) != State.TurnSign)
 			{
 				Angle += State.TurnSign * 2.f * SkateMath::Pi;
 			}

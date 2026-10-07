@@ -1080,8 +1080,8 @@ namespace SkateCoreTestsDetail
 			MaxGap = SkateMath::Max(MaxGap, P.Ball.Pos.X - P.Skater.Pos.X);
 			if (P.Possessed()) { RetrapTime = P.Skater.Time - PushTime; }
 		}
-		R.bPassed = bPushed && RetrapTime >= P.T.BallControl.Possession.AcquireCooldownAfterAction && RetrapTime < 3.f;
-		R.Details = Fmt("A at full speed: released=%d, ball up to %.0f cm ahead, caught again with RT after %.2fs (cooldown %.2fs)",
+		R.bPassed = bPushed && RetrapTime >= P.T.BallControl.Possession.AcquireCooldownAfterAction && RetrapTime < 5.f;
+		R.Details = Fmt("A (pass) at full speed: released=%d, ball up to %.0f cm ahead, own pass caught again with RT after %.2fs (cooldown %.2fs)",
 			bPushed ? 1 : 0, MaxGap, RetrapTime, P.T.BallControl.Possession.AcquireCooldownAfterAction);
 		Out.push_back(R);
 	}
@@ -1296,6 +1296,34 @@ namespace SkateCoreTestsDetail
 			S.Losses, S.MaxAngleDeg, S.MinBodyDistance, P.Skater.State.Velocity.Size());
 		Out.push_back(R);
 	}
+
+	void TestLightTapStrength(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Contact.LightTapIsStrong" };
+		const float Dt = 1.f / 60.f;
+		// Standing with the ball at the feet: one-frame tap of A, and a one-frame tap of X (press+release).
+		FPlaySim Pass = MakeCarryPlay(ESkatePreset::Balanced);
+		FSkateBallActionInput A;
+		A.bPushPressed = true;
+		Pass.Frame(Stick(FSkateVec2(), 0.f), A, Dt);
+		const float PassSpeed = Pass.Impulses.empty() ? 0.f : Pass.Impulses.back().Speed;
+		const FSkateVec3 PassStart = Pass.Ball.Pos;
+		for (int Index = 0; Index < 60 * 15; ++Index) { Pass.Ball.Step(Pass.T.BallPhysics, Dt, false, 1.e9f); }
+		const float PassDistance = (Pass.Ball.Pos - PassStart).Size();
+
+		FPlaySim Shot = MakeCarryPlay(ESkatePreset::Balanced);
+		FSkateBallActionInput X;
+		X.bKickPressed = true;
+		X.bKickReleased = true;
+		Shot.Frame(Stick(FSkateVec2(), 0.f), X, Dt);
+		const float ShotSpeed = Shot.Impulses.empty() ? 0.f : Shot.Impulses.back().Speed;
+		const FSkateTuning& T = Pass.T;
+		R.bPassed = PassSpeed >= T.BallControl.PushSpeed - 1.f && PassSpeed >= 1000.f && PassDistance > 1500.f
+			&& ShotSpeed >= T.BallControl.KickMinSpeed - 1.f && ShotSpeed >= 1600.f;
+		R.Details = Fmt("standing, one-frame tap: pass (A) %.0f cm/s, rolls %.1f m on the ice; shot (X tap, zero charge) %.0f cm/s (full charge %.0f)",
+			PassSpeed, PassDistance / 100.f, ShotSpeed, T.BallControl.KickMaxSpeed);
+		Out.push_back(R);
+	}
 }
 
 std::vector<FSkateTestResult> RunSkateCoreTests()
@@ -1319,6 +1347,7 @@ std::vector<FSkateTestResult> RunSkateCoreTests()
 	TestNoActionOutOfReach(Results);
 	TestKickBufferExpires(Results);
 	TestKickFpsAndCharge(Results);
+	TestLightTapStrength(Results);
 	TestDribbleStraight(Results);
 	TestDribbleTurnKeepsBallInertia(Results);
 	TestBrakeThenRecover(Results);
