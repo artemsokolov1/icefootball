@@ -160,6 +160,7 @@ void ASkatePlayerController::SetupInputComponent()
 	Eic->BindAction(IA_Boost, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBoostReleased);
 
 	Eic->BindAction(IA_Push, ETriggerEvent::Started, this, &ASkatePlayerController::OnPushPressed);
+	Eic->BindAction(IA_Push, ETriggerEvent::Completed, this, &ASkatePlayerController::OnPushReleased);
 	Eic->BindAction(IA_Kick, ETriggerEvent::Started, this, &ASkatePlayerController::OnKickPressed);
 	Eic->BindAction(IA_Kick, ETriggerEvent::Completed, this, &ASkatePlayerController::OnKickReleased);
 
@@ -275,12 +276,14 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		FrameInput.BrakeRaw = BrakeValue;
 		FrameInput.BoostRaw = BoostValue;
 		FrameInput.bPushPressed = bPushEdge;
+		FrameInput.bPushReleased = bPushReleaseEdge;
 		FrameInput.bKickPressed = bKickPressEdge;
 		FrameInput.bKickReleased = bKickReleaseEdge;
 		// Movement runs right after this (the pawn's movement ticks after its controller): no added latency.
 		Skater->ApplyFrameInput(FrameInput);
 	}
 	bPushEdge = false;
+	bPushReleaseEdge = false;
 	bKickPressEdge = false;
 	bKickReleaseEdge = false;
 }
@@ -346,6 +349,11 @@ void ASkatePlayerController::OnPushPressed(const FInputActionValue& Value)
 	bPushEdge = true;
 }
 
+void ASkatePlayerController::OnPushReleased(const FInputActionValue& Value)
+{
+	bPushReleaseEdge = true;
+}
+
 void ASkatePlayerController::OnKickPressed(const FInputActionValue& Value)
 {
 	bKickPressEdge = true;
@@ -369,6 +377,7 @@ void ASkatePlayerController::OnReset(const FInputActionValue& Value)
 	bKickPressEdge = false;
 	bKickReleaseEdge = false;
 	bPushEdge = false;
+	bPushReleaseEdge = false;
 }
 
 void ASkatePlayerController::OnBallToFeet(const FInputActionValue& Value)

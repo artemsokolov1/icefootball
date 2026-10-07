@@ -59,10 +59,9 @@ void ASkateCameraRig::Tick(float DeltaSeconds)
 void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 {
 	using namespace SkateCameraDetail;
-	Camera->SetFieldOfView(Tuning.FieldOfView);
-
 	if (bStaticMode)
 	{
+		Camera->SetFieldOfView(Tuning.FieldOfView);
 		const FRotator Rotation(Tuning.StaticPitch, Tuning.Yaw, 0.f);
 		SetActorLocationAndRotation(StaticFocus - Rotation.Vector() * Tuning.StaticDistance, Rotation);
 		return;
@@ -80,6 +79,13 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 	{
 		DesiredLookAhead = DesiredLookAhead.GetSafeNormal() * Tuning.MaxLookAhead;
 	}
+	// Sprint widens the view a little: speed reads as speed, not only as a bigger number.
+	const float SprintAlpha = FMath::Clamp((static_cast<float>(Velocity.Size2D()) - Tuning.SprintFovStartSpeed)
+		/ FMath::Max(Tuning.SprintFovFullSpeed - Tuning.SprintFovStartSpeed, 1.f), 0.f, 1.f);
+	const float DesiredFovKick = Tuning.SprintFovKick * SprintAlpha * SprintAlpha * (3.f - 2.f * SprintAlpha);
+	FovKick = DeltaSeconds > 0.f ? FMath::FInterpTo(FovKick, DesiredFovKick, DeltaSeconds, 4.f) : DesiredFovKick;
+	Camera->SetFieldOfView(Tuning.FieldOfView + FovKick);
+
 	if (DeltaSeconds > 0.f)
 	{
 		LookAhead = SmoothDamp(LookAhead, DesiredLookAhead, LookAheadVelocity, Tuning.LookAheadSmoothTime, DeltaSeconds);

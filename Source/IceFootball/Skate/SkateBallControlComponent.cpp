@@ -36,9 +36,10 @@ void USkateBallControlComponent::SetTuning(const FSkateTuning& InTuning)
 	}
 }
 
-void USkateBallControlComponent::QueueActions(bool bPush, bool bKickPress, bool bKickRelease)
+void USkateBallControlComponent::QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease)
 {
-	PendingActions.bPushPressed |= bPush;
+	PendingActions.bPushPressed |= bPushPress;
+	PendingActions.bPushReleased |= bPushRelease;
 	PendingActions.bKickPressed |= bKickPress;
 	PendingActions.bKickReleased |= bKickRelease;
 }
@@ -55,6 +56,11 @@ void USkateBallControlComponent::ResetControl()
 	LastImpulse = FSkateBallImpulse();
 	TimeSinceSwing = 100.f;
 	LastSwingKind = ESkateImpulseKind::None;
+}
+
+float USkateBallControlComponent::GetPassCharge() const
+{
+	return FSkateBallControl::PassChargeFraction(ControlTuning, ControlState);
 }
 
 float USkateBallControlComponent::GetKickCharge() const

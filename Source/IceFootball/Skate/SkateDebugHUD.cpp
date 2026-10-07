@@ -114,14 +114,15 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	// Kick charge bar (gameplay feedback, not debug).
 	if (const USkateBallControlComponent* Ball = Skater->GetBallControl())
 	{
-		if (Ball->IsChargingKick())
+		if (Ball->IsChargingKick() || Ball->IsChargingPass())
 		{
+			const bool bKick = Ball->IsChargingKick();
 			const float W = 260.f;
 			const float X = Canvas->ClipX * 0.5f - W * 0.5f;
 			const float Y = Canvas->ClipY - 70.f;
 			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.5f), X - 2.f, Y - 2.f, W + 4.f, 18.f);
-			DrawRect(FLinearColor(1.f, 0.55f, 0.1f, 0.9f), X, Y, W * Ball->GetKickCharge(), 14.f);
-			DrawText(TEXT("KICK"), Info, X, Y - 18.f, GEngine->GetSmallFont(), TextScale);
+			DrawRect(bKick ? FLinearColor(1.f, 0.55f, 0.1f, 0.9f) : FLinearColor(0.2f, 0.75f, 1.f, 0.9f), X, Y, W * (bKick ? Ball->GetKickCharge() : Ball->GetPassCharge()), 14.f);
+			DrawText(bKick ? TEXT("SHOT") : TEXT("PASS"), Info, X, Y - 18.f, GEngine->GetSmallFont(), TextScale);
 		}
 	}
 
@@ -269,7 +270,7 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 		{
 			Line(TEXT("Last impulse: none"), Dim);
 		}
-		Line(FString::Printf(TEXT("Kick charge %.2f   kick buffer %s   push buffer %s"), BallControl->GetKickCharge(),
+		Line(FString::Printf(TEXT("Shot charge %.2f  pass charge %.2f   kick buffer %s   pass buffer %s"), BallControl->GetKickCharge(), BallControl->GetPassCharge(),
 			C.KickBuffer >= 0.f ? *FString::Printf(TEXT("%.2fs"), C.KickBuffer) : TEXT("-"),
 			C.PushBuffer >= 0.f ? *FString::Printf(TEXT("%.2fs"), C.PushBuffer) : TEXT("-")), Info);
 		if (C.LastFailedAction != ESkateImpulseKind::None && C.TimeSinceFail < 3.f)

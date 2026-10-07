@@ -92,6 +92,7 @@ struct FSkateContactReport
 	bool bTouchAllowed = false;      // a dribble touch would happen this frame if not on cooldown
 	bool bHasDribbleIntent = false;
 	bool bOnCooldown = false;
+	bool bInTrapZone = false;        // close enough (front or side) to be trapped into possession
 };
 
 struct FSkateBallImpulse
@@ -109,6 +110,7 @@ struct FSkateBallImpulse
 struct FSkateBallActionInput
 {
 	bool bPushPressed = false;
+	bool bPushReleased = false;
 	bool bKickPressed = false;
 	bool bKickReleased = false;
 };
@@ -152,7 +154,11 @@ struct FSkateBallControlState
 	bool bCharging = false;
 	float ChargeTime = 0.f;
 
-	float PushBuffer = -1.f;   // >= 0 while a push command waits for the ball
+	bool bChargingPass = false;
+	float PassChargeTime = 0.f;
+	float PendingPassPower = 0.f;
+
+	float PushBuffer = -1.f;   // >= 0 while a released pass waits for the ball
 	float KickBuffer = -1.f;   // >= 0 while a released kick waits for the ball
 	float PendingKickPower = 0.f;
 
@@ -185,6 +191,9 @@ public:
 	/** 0..1 kick charge while X is held (for HUD/pose). */
 	static float ChargeFraction(const FSkateBallControlTuning& Tuning, const FSkateBallControlState& State);
 
+	/** 0..1 pass charge while A is held (for HUD/pose). */
+	static float PassChargeFraction(const FSkateBallControlTuning& Tuning, const FSkateBallControlState& State);
+
 	/** Physical contact direction: from the foot (just in front of the skater centre) to the ball. */
 	static FSkateVec2 ContactNormal(const FSkateContactQuery& Query);
 
@@ -198,7 +207,7 @@ public:
 
 private:
 	static FSkateBallImpulse MakeTouch(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
-	static FSkateBallImpulse MakePush(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
+	static FSkateBallImpulse MakePush(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Power);
 	static FSkateBallImpulse MakeKick(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Power);
 	static FSkateBallImpulse MakeBodyBlock(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
 	static FSkateVec2 DesiredDirection(const FSkateContactQuery& Query, float MinStick);

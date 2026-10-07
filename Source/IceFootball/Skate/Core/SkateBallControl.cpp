@@ -57,6 +57,11 @@ void FSkateBallControl::Reset(FSkateBallControlState& State)
 	State = FSkateBallControlState();
 }
 
+float FSkateBallControl::PassChargeFraction(const FSkateBallControlTuning& Tuning, const FSkateBallControlState& State)
+{
+	return State.bChargingPass ? SkateMath::Clamp01(State.PassChargeTime / SkateMath::Max(Tuning.PassMaxChargeTime, 0.01f)) : 0.f;
+}
+
 float FSkateBallControl::ChargeFraction(const FSkateBallControlTuning& Tuning, const FSkateBallControlState& State)
 {
 	return State.bCharging ? SkateMath::Clamp01(State.ChargeTime / SkateMath::Max(Tuning.KickMaxChargeTime, 0.01f)) : 0.f;
@@ -136,6 +141,11 @@ FSkateContactReport FSkateBallControl::Evaluate(const FSkateBallControlTuning& T
 		Report.Reason = bInTouchZone ? ESkateContactReason::Reachable : ESkateContactReason::ActionReachOnly;
 	}
 
+	Report.bInTrapZone = Report.Distance <= Tuning.Possession.TrapDistance
+		&& Report.AngleFromHeadingDeg <= Tuning.Possession.TrapHalfAngle
+		&& Report.BallHeight <= Tuning.MaxTouchHeight
+		&& Query.bLineOfSightClear;
+
 	Report.bHasDribbleIntent = Query.StickMag >= Tuning.DribbleMinStick || Query.SkaterVel.Size() >= Tuning.DribbleMinSpeedNoStick;
 	Report.bTouchAllowed = Report.Reason == ESkateContactReason::Reachable
 		&& Report.bHasDribbleIntent
@@ -163,7 +173,7 @@ bool FSkateBallControl::CanAcquire(const FSkateBallControlTuning& Tuning, const 
 	return PT.bEnabled
 		&& Query.bHasBall
 		&& Query.bInteractionEnabled
-		&& Report.Reason == ESkateContactReason::Reachable
+		&& Report.bInTrapZone
 		&& Report.RelativeSpeed <= PT.AcquireMaxRelSpeed
 		&& State.TimeSinceAction >= PT.AcquireCooldownAfterAction
 		&& State.Possession.TimeSinceLost >= PT.AcquireCooldownAfterLoss;
@@ -253,9 +263,24 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		State.KickBuffer = Tuning.KickBufferTime;
 		State.PushBuffer = -1.f; // the kick supersedes a pending push
 	}
-	if (Actions.bPushPressed && State.KickBuffer < 0.f)
+	// Pass: hold A to charge, release to pass (a quick tap = PushSpeed).
+	if (Actions.bPushPressed)
 	{
-		State.PushBuffer = Tuning.PushBufferTime;
+		State.bChargingPass = true;
+		State.PassChargeTime = 0.f;
+	}
+	else if (State.bChargingPass)
+	{
+		State.PassChargeTime = SkateMath::Min(State.PassChargeTime + Dt, Tuning.PassMaxChargeTime);
+	}
+	if (Actions.bPushReleased && State.bChargingPass)
+	{
+		State.bChargingPass = false;
+		if (State.KickBuffer < 0.f)
+		{
+			State.PendingPassPower = SkateMath::Clamp01(State.PassChargeTime / SkateMath::Max(Tuning.PassMaxChargeTime, 0.01f));
+			State.PushBuffer = Tuning.PushBufferTime;
+		}
 	}
 
 	OutReport = Evaluate(Tuning, Query);
@@ -315,7 +340,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	{
 		if (bActionReach && bGapOk)
 		{
-			Impulse = MakePush(Tuning, Query);
+			Impulse = MakePush(Tuning, Query, State.PendingPassPower);
 			State.PushBuffer = -1.f;
 		}
 		else
@@ -404,14 +429,16 @@ FSkateBallImpulse FSkateBallControl::MakeTouch(const FSkateBallControlTuning& Tu
 	return Impulse;
 }
 
-FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query)
+FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Power)
 {
 	FSkateBallImpulse Impulse;
 	Impulse.Kind = ESkateImpulseKind::Push;
+	Impulse.Power = SkateMath::Clamp01(Power);
 	const FSkateVec2 Normal = ContactNormal(Query);
 	const FSkateVec2 Desired = DesiredDirection(Query, 0.2f);
 	const FSkateVec2 Dir = LimitDeviation(Normal, Desired, Tuning.PushMaxDeviation);
-	const float Speed = Tuning.PushSpeed + Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
+	const float Speed = SkateMath::Lerp(Tuning.PushSpeed, SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed), Impulse.Power)
+		+ Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
 
 	Impulse.Direction = Dir;
 	Impulse.NewBallVelocity = FSkateVec3(Dir * Speed, Query.BallVel.Z);

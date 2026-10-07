@@ -68,7 +68,7 @@ struct FSkateMovementTuning
 
 	/** Top speed with full stick and full RT (cm/s). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "100"))
-	float BoostMaxSpeed = 800.f;
+	float BoostMaxSpeed = 1000.f;
 
 	/** Time constant (s) of the speed approach to the stick's target speed. ~3x this is the time to 95% of top speed.
 	 *  Acceleration is highest at the start (fast first response) and fades near the target (smooth top-out). */
@@ -77,7 +77,7 @@ struct FSkateMovementTuning
 
 	/** Same as ThrustTimeConstant while boosting (towards BoostMaxSpeed). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.05"))
-	float BoostTimeConstant = 0.42f;
+	float BoostTimeConstant = 0.36f;
 
 	/** Thrust is only produced when the skates point roughly where the stick asks:
 	 *  thrust scale ramps from 0 at this dot(heading, stick) to 1 at dot = 1. */
@@ -156,9 +156,14 @@ struct FSkateMovementTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0"))
 	float ReverseMinSpeed = 150.f;
 
-	/** Deceleration (cm/s^2) of a reverse stop at full stick deflection. */
+	/** Deceleration (cm/s^2) of a reverse stop at full stick deflection. High = snappy direction change. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0"))
-	float ReverseBrakeDecel = 720.f;
+	float ReverseBrakeDecel = 1900.f;
+
+	/** In a reverse stop the blades swing round to the new direction at this rate (deg/s) and the skater
+	 *  already pushes that way, so the stop flows straight into acceleration the other way. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "90"))
+	float ReverseTurnRate = 900.f;
 
 	/** A reverse stop needs a FLICK: the stick must jump (or come from neutral) into the backward sector
 	 *  within this time (s). Sweeping the stick around the rim (circling) is a turn, never a stop. */
@@ -202,6 +207,15 @@ struct FSkatePossessionTuning
 	 *  Off: the older "free ball + dribble touches" mode. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession")
 	bool bEnabled = true;
+
+	/** Trap zone: a low ball whose centre is within this distance (cm) of the skater centre... */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30"))
+	float TrapDistance = 90.f;
+
+	/** ...and within this angle (deg) of the blades' heading is trapped - in front AND beside the skater,
+	 *  not only exactly in front. It then swings around to the front (OrbitRate). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30", ClampMax = "180"))
+	float TrapHalfAngle = 130.f;
 
 	/** Incoming balls faster than this (cm/s, relative to the skater) bounce off instead of being trapped. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
@@ -346,9 +360,17 @@ struct FSkateBallControlTuning
 
 	// ---- Push (A) ----
 
-	/** Ball speed of a pass / push (cm/s) from standstill. Even a light tap of A gives the full pass. */
+	/** Pass (A) ball speed (cm/s) for a quick tap - already a firm pass. Hold A to charge up to PassMaxSpeed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
 	float PushSpeed = 1150.f;
+
+	/** Pass ball speed (cm/s) at full charge. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
+	float PassMaxSpeed = 2300.f;
+
+	/** Time (s) to reach full pass power while holding A. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0.1"))
+	float PassMaxChargeTime = 0.6f;
 
 	/** Fraction of the skater's speed along the push direction added to the push. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "2"))
@@ -473,6 +495,17 @@ struct FSkateCameraTuning
 	float FieldOfView = 55.f;
 
 	/** Look-ahead = velocity * this time (s), clamped to MaxLookAhead. Shows the space in front of the skater. */
+	/** Extra field of view (deg) at full sprint speed, so a sprint reads as clearly faster. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0", ClampMax = "30"))
+	float SprintFovKick = 7.f;
+
+	/** Speed (cm/s) where the sprint FOV kick starts and where it is full. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
+	float SprintFovStartSpeed = 620.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "1"))
+	float SprintFovFullSpeed = 980.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
 	float LookAheadTime = 0.35f;
 

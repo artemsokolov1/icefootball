@@ -51,4 +51,5 @@ private:
 	FVector StaticFocus = FVector::ZeroVector;
 	FVector2D LookAhead = FVector2D::ZeroVector;
 	FVector2D LookAheadVelocity = FVector2D::ZeroVector;
+	float FovKick = 0.f;
 };

@@ -77,6 +77,7 @@ private:
 
 	// Button handlers
 	void OnPushPressed(const FInputActionValue& Value);
+	void OnPushReleased(const FInputActionValue& Value);
 	void OnKickPressed(const FInputActionValue& Value);
 	void OnKickReleased(const FInputActionValue& Value);
 	void OnReset(const FInputActionValue& Value);
@@ -117,6 +118,7 @@ private:
 	float BrakeValue = 0.f;
 	float BoostValue = 0.f;
 	bool bPushEdge = false;
+	bool bPushReleaseEdge = false;
 	bool bKickPressEdge = false;
 	bool bKickReleaseEdge = false;
 	bool bLastInputGamepad = true;

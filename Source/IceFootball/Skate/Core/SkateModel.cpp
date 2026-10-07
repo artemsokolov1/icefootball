@@ -134,6 +134,7 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 
 	// ---- 1. Reverse-stop intent: stick FLICKED against travel at speed. Hysteresis avoids flicker. ----
 	// A flick = the stick came from neutral or jumped by a large angle. Sweeping it around the rim is a turn.
+	const float StickVsTravel = bHasStick ? StickDir.Dot(TravelDir) : 1.f;
 	State.TimeSinceStickFlick += H;
 	if (bHasStick)
 	{
@@ -141,17 +142,18 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 			|| State.PrevStickDir.Dot(StickDir) < std::cos(Tuning.ReverseFlickAngle * SkateMath::DegToRad);
 		if (bJump)
 		{
+			// Only a stick that LANDS behind (from neutral or by a jump) counts; rotating into the back is a turn.
 			State.TimeSinceStickFlick = 0.f;
+			State.bFlickIntoBack = StickVsTravel < Tuning.ReverseIntentDot;
 		}
 		State.PrevStickDir = StickDir;
 	}
 	State.bPrevStick = bHasStick;
 
-	const float StickVsTravel = bHasStick ? StickDir.Dot(TravelDir) : 1.f;
 	if (!State.bReverseStop)
 	{
 		State.bReverseStop = bHasStick && Speed > Tuning.ReverseMinSpeed && StickVsTravel < Tuning.ReverseIntentDot
-			&& State.TimeSinceStickFlick <= Tuning.ReverseFlickWindow;
+			&& State.bFlickIntoBack && State.TimeSinceStickFlick <= Tuning.ReverseFlickWindow;
 	}
 	else
 	{
@@ -167,9 +169,8 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 		float Rate = TurnRateLimit(Tuning, Speed, Brake);
 		if (State.bReverseStop)
 		{
-			// Keep the blades along the travel line; the pose shows the hockey stop.
-			Rate = SkateMath::Min(Rate, Tuning.GlideAlignRate * SkateMath::DegToRad);
-			Heading = Heading.RotatedTowards(AxisAlignedWith(Heading, TravelDir), Rate * H);
+			// Snap turn: the blades swing round to the new direction while the skater stops and pushes off.
+			Heading = Heading.RotatedTowards(StickDir, Tuning.ReverseTurnRate * SkateMath::DegToRad * H);
 			State.TurnSign = 0.f;
 		}
 		else if (bHasStick)
@@ -251,7 +252,7 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 	// ---- 5. Thrust along the blade / glide friction ----
 	float Pushing = 0.f;
 	bool bOverspeed = false;
-	if (bHasStick && !State.bReverseStop)
+	if (bHasStick)
 	{
 		const float Align = Heading.Dot(StickDir);
 		const float MinDot = SkateMath::Min(Tuning.ThrustAlignMinDot, 0.95f);

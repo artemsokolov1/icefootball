@@ -49,10 +49,10 @@ struct FSkateArenaLayout
 
 	/** Stop zone (box) centre X along the acceleration lane and its length. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float StopZoneCenterX = -50.f;
+	float StopZoneCenterX = 100.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float StopZoneLength = 400.f;
+	float StopZoneLength = 700.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	FVector2D TurnCircleCenter = FVector2D(-1250.f, 900.f);

@@ -28,6 +28,7 @@ struct FSkateFrameInput
 	float BrakeRaw = 0.f;
 	float BoostRaw = 0.f;
 	bool bPushPressed = false;
+	bool bPushReleased = false;
 	bool bKickPressed = false;
 	bool bKickReleased = false;
 };

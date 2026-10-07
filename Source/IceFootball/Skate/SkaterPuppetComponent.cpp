@@ -113,7 +113,8 @@ void USkaterPuppetComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	Input.SlideSide = static_cast<float>(State.Heading.X * Vel.Y - State.Heading.Y * Vel.X) >= 0.f ? 1.f : -1.f;
 	if (const USkateBallControlComponent* Ball = Skater->GetBallControl())
 	{
-		Input.KickCharge = Ball->GetKickCharge();
+		// A charged pass winds the leg up too, a little less than a shot.
+		Input.KickCharge = FMath::Max(Ball->GetKickCharge(), 0.6f * Ball->GetPassCharge());
 		Input.SwingKind = Ball->GetLastSwingKind();
 		Input.SwingTime = Ball->GetTimeSinceActionSwing();
 		Input.SwingPower = Ball->GetLastSwingPower();

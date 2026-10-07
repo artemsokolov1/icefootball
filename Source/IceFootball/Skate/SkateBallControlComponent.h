@@ -30,7 +30,7 @@ public:
 	bool IsInteractionEnabled() const { return bInteractionEnabled; }
 
 	/** Button edges from the controller; consumed on the next tick. */
-	void QueueActions(bool bPush, bool bKickPress, bool bKickRelease);
+	void QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease);
 
 	void ResetControl();
 
@@ -39,6 +39,8 @@ public:
 	const FSkateBallControlState& GetControlState() const { return ControlState; }
 	float GetKickCharge() const;
 	bool IsChargingKick() const { return ControlState.bCharging; }
+	float GetPassCharge() const;
+	bool IsChargingPass() const { return ControlState.bChargingPass; }
 	bool HasBall() const { return ControlState.Possession.bPossessed; }
 
 	/** Last applied impulse (for HUD, pose and feedback). */

@@ -149,7 +149,7 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 
 	if (BallControl)
 	{
-		BallControl->QueueActions(Input.bPushPressed, Input.bKickPressed, Input.bKickReleased);
+		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed, Input.bKickReleased);
 	}
 }
 

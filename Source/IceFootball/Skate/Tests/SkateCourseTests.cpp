@@ -12,8 +12,8 @@ namespace SkateCourseTestsDetail
 	// Mirrors the FSkateArenaLayout defaults (SkateArena.h).
 	constexpr float AccelStartX = -2000.f;
 	constexpr float AccelLaneY = -1100.f;
-	constexpr float StopZoneCenterX = -50.f;
-	constexpr float StopZoneLength = 400.f;
+	constexpr float StopZoneCenterX = 100.f;
+	constexpr float StopZoneLength = 700.f;
 	constexpr float SlalomY = -250.f;
 	constexpr float SlalomStartX = -2000.f;
 	constexpr float SlalomSpacing = 400.f;
