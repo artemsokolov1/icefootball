@@ -355,6 +355,9 @@ void ASkatePlayerController::SwitchTo(int32 Index)
 		Previous->CancelBallActions();
 	}
 	ActiveIndex = Index;
+	LatchStick = LastRawStick;
+	bStickLatched = LastRawStick.Size() > 0.3;
+	LatchTime = 0.f;
 	bPushEdge = false;
 	bPushReleaseEdge = false;
 	bKickPressEdge = false;
@@ -481,7 +484,7 @@ void ASkatePlayerController::DriveAI()
 	for (int32 Index = 0; Index < Team.Num(); ++Index)
 	{
 		ASkateCharacter* Mate = Team[Index].Get();
-		if ((Index == ActiveIndex && !bBotsVsBots) || !Mate || !TeamBrains.IsValidIndex(Index))
+		if ((Index == ActiveIndex && !bBotsVsBots && !bStickLatched) || !Mate || !TeamBrains.IsValidIndex(Index))
 		{
 			continue;
 		}
@@ -671,8 +674,20 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 			FrameInput.CameraYawDeg = Yaw;
 			FrameInput.BrakeRaw = 1.f;
 		}
+		LastRawStick = FrameInput.RawStick;
+		if (bStickLatched)
+		{
+			LatchTime += DeltaTime;
+			const bool bReleased = FrameInput.RawStick.Size() < 0.3;
+			const bool bMoved = !bReleased && FVector2D::DotProduct(FrameInput.RawStick.GetSafeNormal(), LatchStick.GetSafeNormal()) < 0.5; // > 60 deg
+			if (bReleased || bMoved || bPushEdge || bKickPressEdge || LatchTime > 1.5f)
+			{
+				bStickLatched = false;
+			}
+		}
 		// Movement runs right after this (the pawn's movement ticks after its controller): no added latency.
-		if (!bBotsVsBots)
+		// While the stick is latched the new skater is still driven by the AI (DriveAI), e.g. to receive the pass.
+		if (!bBotsVsBots && !bStickLatched)
 		{
 			Skater->ApplyFrameInput(FrameInput);
 		}

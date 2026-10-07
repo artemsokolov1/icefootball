@@ -34,6 +34,10 @@ struct FSkateArenaLayout
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float BoardThickness = 30.f;
 
+	/** Invisible glass above the boards (cm): lofted balls stay in the rink. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	float GlassHeight = 300.f;
+
 	/** Corner radius (cm): hockey rinks have rounded corners (IIHF 8.5 m). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float CornerRadius = 850.f;

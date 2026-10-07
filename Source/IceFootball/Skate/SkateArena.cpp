@@ -377,6 +377,12 @@ void ASkateArena::AddBoard(const FVector2D& Center, float Length, float Yaw)
 	const float H = Layout.BoardHeight;
 	UStaticMeshComponent* Board = AddBox(FVector(Center.X, Center.Y, H * 0.5f), FVector(Length, T, H), BoardColor, BoardMaterial, Yaw);
 	Board->ComponentTags.Add(BoardTag());
+	if (Layout.GlassHeight > 0.f)
+	{
+		UStaticMeshComponent* Glass = AddBox(FVector(Center.X, Center.Y, H + Layout.GlassHeight * 0.5f), FVector(Length, T, Layout.GlassHeight), BoardColor, BoardMaterial, Yaw);
+		Glass->SetVisibility(false);
+		Glass->SetCastShadow(false);
+	}
 	const float CapH = 6.f;
 	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(
 		FTransform(FRotator(0.f, Yaw, 0.f), FVector(Center.X, Center.Y, H + CapH * 0.5f), FVector(Length, T, CapH) / 100.f));
@@ -697,6 +703,14 @@ void ASkateArena::Tick(float DeltaSeconds)
 		UE_LOG(LogIceSkate, Log, TEXT("GOAL team %d: %d:%d"), LastGoalTeam, Score0, Score1);
 	}
 	bBallInGoal = InGoal != INDEX_NONE;
+
+	// Out of play (over the glass, through a seam): face-off, like a puck leaving the rink.
+	const FVector BallLoc = Ball->GetActorLocation();
+	if (!IsInsideRink(BallLoc, 60.f) || BallLoc.Z - GetActorLocation().Z > Layout.BoardHeight + Layout.GlassHeight + 200.f)
+	{
+		UE_LOG(LogIceSkate, Log, TEXT("Ball out of play at (%.0f, %.0f, %.0f): face-off"), BallLoc.X, BallLoc.Y, BallLoc.Z);
+		ResetScene();
+	}
 }
 
 int32 ASkateArena::BallInGoal() const

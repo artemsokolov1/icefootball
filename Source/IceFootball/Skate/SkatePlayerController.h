@@ -162,6 +162,12 @@ private:
 	float BrakeValue = 0.f;
 	float BoostValue = 0.f;
 	bool bBackwardHeld = false;
+	/** After a switch the stick still points where it did for the previous skater: it is ignored (the new skater
+	 *  keeps its AI behaviour, e.g. settling to receive the pass) until released, moved by a wide angle or a button. */
+	bool bStickLatched = false;
+	FVector2D LatchStick = FVector2D::ZeroVector;
+	FVector2D LastRawStick = FVector2D::ZeroVector;
+	float LatchTime = 0.f;
 	bool bPushEdge = false;
 	bool bPushReleaseEdge = false;
 	bool bKickPressEdge = false;
