@@ -15,3 +15,4 @@ DerivedDataCache/
 # Standalone core test runner build output
 Tools/SkateSim/skatesim
 Tools/SkateSim/out/
+.mcp.json
