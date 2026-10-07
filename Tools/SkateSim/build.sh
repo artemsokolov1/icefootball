@@ -9,6 +9,6 @@ CXX="${CXX:-g++}"
   -I"$HERE/stubs" -I"$SRC/Core" -I"$SRC/Tests" \
   "$SRC/Core/SkateInput.cpp" "$SRC/Core/SkateModel.cpp" "$SRC/Core/SkateBallControl.cpp" \
   "$SRC/Core/SkateTuningPresets.cpp" "$SRC/Tests/SkateCoreTests.cpp" "$SRC/Tests/SkateCourseTests.cpp" "$SRC/Tests/SkatePoseTests.cpp" "$SRC/Core/SkatePose.cpp" \
-  "$SRC/Core/SkateKeeper.cpp" "$SRC/Core/SkateTeamAI.cpp" "$SRC/Core/SkateOpponentAI.cpp" "$SRC/Tests/SkateTeamTests.cpp" "$HERE/main.cpp" \
+  "$SRC/Core/SkateKeeper.cpp" "$SRC/Core/SkateSkaterAI.cpp" "$SRC/Core/SkateHit.cpp" "$SRC/Tests/SkateTeamTests.cpp" "$HERE/main.cpp" \
   -o "$HERE/skatesim"
 echo "built $HERE/skatesim"

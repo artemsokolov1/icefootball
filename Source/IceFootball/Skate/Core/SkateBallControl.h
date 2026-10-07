@@ -54,7 +54,8 @@ enum class ESkatePossessionLoss : unsigned char
 	Blocked,   // held back by a wall or obstacle
 	Airborne,  // bounced up
 	Disabled,  // interaction switched off / reset
-	Taken,     // someone else (the keeper) took the ball
+	Taken,     // someone else (the keeper, an opponent) took the ball
+	Hit,       // knocked loose by a body check
 };
 
 const char* SkatePossessionLossName(ESkatePossessionLoss Loss);
@@ -94,6 +95,8 @@ struct FSkateContactQuery
 	/** False when a trace from the skater to the ball hits a wall (no touching through boards). */
 	bool bLineOfSightClear = true;
 	bool bInteractionEnabled = true;
+	/** Just body-checked: no trap, no touch, no action; a carried ball is dropped (loss Hit). */
+	bool bStunned = false;
 
 	/** Another player (teammate / keeper) holds the ball: no trap, no touch, no impulse from this skater. */
 	bool bBallHeldByOther = false;

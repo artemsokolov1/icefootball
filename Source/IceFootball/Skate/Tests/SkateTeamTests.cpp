@@ -3,8 +3,8 @@
 #include "../Core/SkateBallControl.h"
 #include "../Core/SkateKeeper.h"
 #include "../Core/SkateModel.h"
-#include "../Core/SkateOpponentAI.h"
-#include "../Core/SkateTeamAI.h"
+#include "../Core/SkateHit.h"
+#include "../Core/SkateSkaterAI.h"
 #include "../Core/SkateTuningPresets.h"
 
 #include <cstdarg>
@@ -34,12 +34,13 @@ namespace SkateTeamTestsDetail
 		FSkateVec2 Pos;
 		FSkateBallControlState Control;
 		FSkateContactReport Report;
+		/** Driven by FSkateSkaterAI (attacks Goal). Team[] decides who is a teammate. */
 		bool bAI = false;
-		ESkateTeammateMode Mode = ESkateTeammateMode::Wait;
-		/** Driven by the opposing-team AI (attacks Goal); needs Team[] to differ from the other skater. */
-		bool bOpponent = false;
-		FSkateOpponentBrain Brain;
-		ESkateOpponentMode OppMode = ESkateOpponentMode::Wait;
+		FSkateSkaterBrain Brain;
+		ESkateSkaterMode Mode = ESkateSkaterMode::Wait;
+		/** Stun left after a body check (s). */
+		float Stun = 0.f;
+		int Hits = 0;
 		int Impulses = 0;
 		int BodyBlocks = 0;
 	};
@@ -122,6 +123,7 @@ namespace SkateTeamTestsDetail
 			Q.StickDir = In.Direction;
 			Q.StickMag = In.Magnitude;
 			Q.bHasBall = true;
+			Q.bStunned = S[Index].Stun > 0.f;
 			Q.BallPos = BallPos;
 			Q.BallVel = BallVel;
 			Q.BallRadius = T.BallPhysics.Radius;
@@ -134,23 +136,9 @@ namespace SkateTeamTestsDetail
 			return Q;
 		}
 
-		FSkateMoveInput AIInput(int Index)
+		FSkateSkaterView AIView(int Index) const
 		{
-			FSkateTeammateView View;
-			View.Pos = S[Index].Pos;
-			View.Vel = S[Index].State.Velocity;
-			View.Heading = S[Index].State.Heading;
-			View.bHasBall = S[Index].Control.Possession.bPossessed;
-			View.bBallValid = true;
-			View.BallPos = BallPos.XY();
-			View.BallVel = BallVel.XY();
-			View.bBallHeld = Holder != NoHolder && Holder != Index;
-			return FSkateTeammateAI::Think(View, &S[Index].Mode);
-		}
-
-		FSkateOpponentView OpponentView(int Index) const
-		{
-			FSkateOpponentView View;
+			FSkateSkaterView View;
 			View.Pos = S[Index].Pos;
 			View.Vel = S[Index].State.Velocity;
 			View.Heading = S[Index].State.Heading;
@@ -163,8 +151,13 @@ namespace SkateTeamTestsDetail
 			View.AttackGoal = Goal.Center;
 			View.OwnGoal = FSkateVec2(-Goal.Center.X, Goal.Center.Y);
 			View.GoalHalfWidth = Goal.HalfWidth;
+			View.bBallIsMyPass = LastKind == ESkateImpulseKind::Push && LastSource == Index;
+			View.bBallIsPassToMe = LastKind == ESkateImpulseKind::Push && LastSource != Index;
 			View.bChaser = true;
-			View.bThreatValid = true;
+			View.bMateValid = Team[1 - Index] == Team[Index];
+			View.MatePos = S[1 - Index].Pos;
+			View.MateVel = S[1 - Index].State.Velocity;
+			View.bThreatValid = Team[1 - Index] != Team[Index];
 			View.ThreatPos = S[1 - Index].Pos;
 			return View;
 		}
@@ -177,16 +170,17 @@ namespace SkateTeamTestsDetail
 			FSkateBallActionInput UsedAct[2] = { Act[0], Act[1] };
 			for (int Index = 0; Index < 2; ++Index)
 			{
+				S[Index].Stun = SkateMath::Max(0.f, S[Index].Stun - Dt);
 				if (S[Index].bAI)
 				{
-					Used[Index] = AIInput(Index);
-				}
-				else if (S[Index].bOpponent)
-				{
-					const FSkateOpponentDecision Dec = FSkateOpponentAI::Think(OpponentView(Index), S[Index].Brain, Dt);
+					const FSkateSkaterDecision Dec = FSkateSkaterAI::Think(AIView(Index), S[Index].Brain, Dt);
 					Used[Index] = Dec.Move;
 					UsedAct[Index] = Dec.Actions;
-					S[Index].OppMode = Dec.Mode;
+					S[Index].Mode = Dec.Mode;
+				}
+				if (S[Index].Stun > 0.f)
+				{
+					Used[Index] = FSkateMoveInput(); // no stick while stunned
 				}
 				FSkateModel::Step(T.Movement, Used[Index], Dt, S[Index].State);
 				S[Index].Pos += S[Index].State.Velocity * Dt;
@@ -197,6 +191,17 @@ namespace SkateTeamTestsDetail
 				const float Dist = Delta.Size();
 				if (Dist < 2.f * SkaterRadius && Dist > 0.01f)
 				{
+					// Opponents: a body check before the capsules push apart.
+					const FSkateHitResult Hit = Team[0] != Team[1] && S[0].Stun <= 0.f && S[1].Stun <= 0.f
+						? FSkateHit::Resolve(T.Hit, S[0].Pos, S[0].State.Velocity, S[1].Pos, S[1].State.Velocity) : FSkateHitResult();
+					if (Hit.bHit)
+					{
+						const int Victim = 1 - Hit.Hitter;
+						S[Hit.Hitter].State.Velocity = Hit.HitterVelocity;
+						S[Victim].State.Velocity = Hit.VictimVelocity;
+						S[Victim].Stun = T.Hit.StunTime;
+						++S[Hit.Hitter].Hits;
+					}
 					const FSkateVec2 N = Delta * (1.f / Dist);
 					const float Push = (2.f * SkaterRadius - Dist) * 0.5f;
 					S[0].Pos -= N * Push;
@@ -379,7 +384,6 @@ namespace SkateTeamTestsDetail
 		FTeamSim Sim;
 		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
 		Sim.Place(1, ReceiverPos, ReceiverHeading);
-		Sim.S[1].bAI = true;
 		Sim.GiveBall(0, Dt);
 		Sim.Run(0.5f, Dt, [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0] = Stick(FSkateVec2(1.f, 0.f), 0.f, 1.f); });
 		// Press A, hold, release - stick pointing at +X.
@@ -396,6 +400,7 @@ namespace SkateTeamTestsDetail
 			In[0] = Stick(FSkateVec2(1.f, 0.f), 0.2f, 1.f);
 			if (!bPressed) { Act[0].bPushPressed = true; bPressed = true; }
 			if (!bReleased && Sim.Time - Start >= ChargeSeconds - 0.5f * Dt) { Act[0].bPushReleased = true; bReleased = true; }
+			Sim.S[1].bAI = bReleased; // keeps its heading until the pass is played, then receives it
 			const bool bHadBall = Sim.S[1].Control.Possession.bPossessed;
 			const int Before = Sim.S[0].Impulses;
 			Sim.Frame(In, Act, Dt);
@@ -467,33 +472,45 @@ namespace SkateTeamTestsDetail
 		Out.push_back(R);
 	}
 
-	void TestTeammateWaitsAndFaces(std::vector<FSkateTestResult>& Out)
+	void TestTeammateSupportsAhead(std::vector<FSkateTestResult>& Out)
 	{
-		FSkateTestResult R("Team.AIWaitsFacingTheBall");
+		FSkateTestResult R("Team.AIGetsOpenAheadOfCarrier");
 		const float Dt = 1.f / 60.f;
-		bool bOk = true;
-		std::string Info;
-		const FSkateVec2 BallSpots[] = { FSkateVec2(300.f, 300.f), FSkateVec2(-400.f, 0.f), FSkateVec2(0.f, -600.f) };
-		for (const FSkateVec2& Spot : BallSpots)
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(-1000.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(-1300.f, 150.f), FSkateVec2(1.f, 0.f)); // behind the carrier
+		Sim.GiveBall(0, Dt);
+		Sim.S[1].bAI = true;
+		Sim.Run(4.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; });
+		const FSkateVec2 Rel = Sim.S[1].Pos - Sim.S[0].Pos;
+		const bool bAhead = Rel.X > 300.f; // towards the goal at +X
+		const bool bWide = SkateMath::Abs(Rel.Y) > 300.f;
+		R.bPassed = bAhead && bWide && Sim.S[1].Mode == ESkateSkaterMode::Support && !Sim.S[1].Control.Possession.bPossessed;
+		R.Details = Fmt("player holds the ball, teammate starts 3 m behind: after 4 s it is %.0f cm ahead and %.0f cm to the side (mode %s)",
+			Rel.X, Rel.Y, SkateSkaterModeName(Sim.S[1].Mode));
+		Out.push_back(R);
+	}
+
+	void TestTeammateIgnoresOwnPass(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.AIDoesNotChaseItsOwnPass");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(1200.f, 0.f), FSkateVec2(-1.f, 0.f)); // receiver, faces the passer
+		Sim.Place(1, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));    // AI passer
+		Sim.GiveBall(1, Dt);
+		Sim.S[1].bAI = true; // the mate is 12 m nearer the goal: the AI passes
+		bool bPassed = false;
+		float MaxPasserX = 0.f;
+		Sim.Run(3.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*)
 		{
-			FTeamSim Sim;
-			Sim.Place(0, Spot - FSkateVec2(42.f, 0.f), FSkateVec2(1.f, 0.f));
-			Sim.Place(1, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
-			Sim.S[1].State.Velocity = FSkateVec2(300.f, 0.f); // still gliding when control switched away
-			Sim.S[1].bAI = true;
-			Sim.GiveBall(0, Dt);
-			Sim.Run(1.5f, Dt);
-			const FSkateVec2 Settled = Sim.S[1].Pos;
-			Sim.Run(3.f, Dt);
-			const float Drift = (Sim.S[1].Pos - Settled).Size();
-			const FSkateVec2 ToBall = (Sim.BallPos.XY() - Sim.S[1].Pos).GetSafeNormal();
-			const float FaceDeg = SkateMath::Abs(Sim.S[1].State.Heading.SignedAngleTo(ToBall)) * SkateMath::RadToDeg;
-			const bool bCase = Drift < 15.f && FaceDeg < 25.f && Sim.S[1].State.Velocity.Size() < 5.f;
-			bOk &= bCase;
-			Info += Fmt("ball at (%.0f,%.0f): stopped after the glide, drift over 3 s %.1f cm, facing the ball within %.0f deg%s; ", Spot.X, Spot.Y, Drift, FaceDeg, bCase ? "" : " FAIL");
-		}
-		R.bPassed = bOk;
-		R.Details = Info;
+			In[0].Brake = 1.f;
+			bPassed |= Sim.LastKind == ESkateImpulseKind::Push && Sim.LastSource == 1;
+			if (bPassed && Sim.Holder == NoHolder) { MaxPasserX = SkateMath::Max(MaxPasserX, Sim.S[1].Pos.X); }
+		});
+		R.bPassed = bPassed && Sim.S[0].Control.Possession.bPossessed && MaxPasserX < 700.f;
+		R.Details = Fmt("AI passed %d, receiver has the ball %d, passer went at most to x = %.0f (stays behind the pass)",
+			bPassed ? 1 : 0, Sim.S[0].Control.Possession.bPossessed ? 1 : 0, MaxPasserX);
 		Out.push_back(R);
 	}
 
@@ -506,6 +523,7 @@ namespace SkateTeamTestsDetail
 		Sim.Place(1, FSkateVec2(0.f, 0.f), FSkateVec2(-1.f, 0.f));
 		Sim.S[1].bAI = true;
 		Sim.BallPos = FSkateVec3(500.f, -250.f, Sim.T.BallPhysics.Radius);
+		Sim.Run(1.f, Dt); // the ball has been loose for a while: not a pass
 		float GotIt = -1.f;
 		Sim.Run(5.f, Dt, [&](float Time, FSkateMoveInput*, FSkateBallActionInput*)
 		{
@@ -528,17 +546,17 @@ namespace SkateTeamTestsDetail
 		Sim.Place(1, FSkateVec2(900.f, 0.f), FSkateVec2(-1.f, 0.f));
 		Sim.GiveBall(0, Dt);
 		const bool bHeld = Sim.S[0].Control.Possession.bPossessed;
-		Sim.S[1].bOpponent = true; // chaser: presses the carrier
+		Sim.S[1].bAI = true; // chaser: presses the carrier
 		float Stolen = -1.f;
 		Sim.Run(5.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
 		{
 			In[0].Brake = 1.f; // the carrier just stands there
 			if (Stolen < 0.f && Sim.S[1].Control.Possession.bPossessed) { Stolen = Time; }
 		});
-		const bool bTaken = Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Taken;
+		const bool bTaken = Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Taken || Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Hit;
 		R.bPassed = bHeld && Stolen > Sim.T.BallControl.Possession.StealProtectTime && Stolen < 4.f && bTaken && !Sim.S[0].Control.Possession.bPossessed && Sim.DoubleImpulses == 0;
 		R.Details = Fmt("opponent 9 m away presses a standing carrier: ball taken after %.2fs (loss %s), carrier still has it %d, double impulses %d",
-			Stolen, bTaken ? "Taken" : "other", Sim.S[0].Control.Possession.bPossessed ? 1 : 0, Sim.DoubleImpulses);
+			Stolen, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss), Sim.S[0].Control.Possession.bPossessed ? 1 : 0, Sim.DoubleImpulses);
 		Out.push_back(R);
 	}
 
@@ -551,7 +569,7 @@ namespace SkateTeamTestsDetail
 		Sim.Place(0, FSkateVec2(-2000.f, -1200.f), FSkateVec2(1.f, 0.f)); // out of the way
 		Sim.Place(1, FSkateVec2(-500.f, -300.f), FSkateVec2(1.f, 0.f));
 		Sim.GiveBall(1, Dt);
-		Sim.S[1].bOpponent = true;
+		Sim.S[1].bAI = true;
 		float ShotTime = -1.f;
 		float ShotDist = 0.f;
 		float CrossLateral = 1e9f;
@@ -573,7 +591,7 @@ namespace SkateTeamTestsDetail
 			}
 		});
 		const bool bOnTarget = SkateMath::Abs(CrossLateral) < Sim.Goal.HalfWidth;
-		R.bPassed = ShotTime > 0.f && ShotTime < 7.f && ShotDist < FSkateOpponentAI::ShootDistance + 100.f && bOnTarget;
+		R.bPassed = ShotTime > 0.f && ShotTime < 7.f && ShotDist < FSkateSkaterAI::ShootDistance + 100.f && bOnTarget;
 		R.Details = Fmt("AI with the ball 31 m out: shot at %.2fs from %.0f cm, crosses the line %.0f cm off centre (mouth +-%.0f)",
 			ShotTime, ShotDist, CrossLateral < 1e8f ? CrossLateral : -1.f, Sim.Goal.HalfWidth);
 		Out.push_back(R);
@@ -588,7 +606,7 @@ namespace SkateTeamTestsDetail
 		Sim.Place(0, FSkateVec2(300.f, 0.f), FSkateVec2(-1.f, 0.f)); // stands in the way, facing the carrier
 		Sim.Place(1, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
 		Sim.GiveBall(1, Dt);
-		Sim.S[1].bOpponent = true;
+		Sim.S[1].bAI = true;
 		float Passed = -1.f;
 		Sim.Run(4.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
 		{
@@ -598,6 +616,51 @@ namespace SkateTeamTestsDetail
 		R.bPassed = Passed > 0.f && Passed < 3.5f && Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::None;
 		R.Details = Fmt("blocker 3 m ahead of the AI carrier: got past with the ball after %.2fs, blocker ever had it %d",
 			Passed, Sim.S[0].Control.Possession.AcquireCount);
+		Out.push_back(R);
+	}
+
+	void TestBodyCheck(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.BodyCheckKnocksBallLoose");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(0.f, 1.f));    // carrier, side-on to the hitter
+		Sim.Place(1, FSkateVec2(600.f, 0.f), FSkateVec2(-1.f, 0.f)); // hitter sprints in from 6 m
+		Sim.GiveBall(0, Dt);
+		float HitTime = -1.f;
+		float PushedSpeed = 0.f;
+		bool bLostToHit = false;
+		Sim.Run(3.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			In[1] = Stick(FSkateVec2(-1.f, 0.f), 1.f);
+			In[1].Boost = 1.f;
+			if (HitTime < 0.f && Sim.S[1].Hits > 0) { HitTime = Time; PushedSpeed = Sim.S[0].State.Velocity.Size(); }
+			bLostToHit |= Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Hit;
+		});
+		R.bPassed = HitTime > 0.f && PushedSpeed > 300.f && bLostToHit && !Sim.S[0].Control.Possession.bPossessed;
+		R.Details = Fmt("hitter sprints into a standing carrier: check after %.2fs, victim shoved at %.0f cm/s, lost the ball to the hit %d, still has it %d",
+			HitTime, PushedSpeed, bLostToHit ? 1 : 0, Sim.S[0].Control.Possession.bPossessed ? 1 : 0);
+		Out.push_back(R);
+	}
+
+	void TestNoCheckBetweenTeammates(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.NoCheckBetweenTeammates");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(0.f, 1.f));
+		Sim.Place(1, FSkateVec2(600.f, 0.f), FSkateVec2(-1.f, 0.f));
+		Sim.GiveBall(0, Dt);
+		Sim.Run(2.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			In[1] = Stick(FSkateVec2(-1.f, 0.f), 1.f);
+			In[1].Boost = 1.f;
+		});
+		R.bPassed = Sim.S[1].Hits == 0 && Sim.S[0].Control.Possession.LastLoss != ESkatePossessionLoss::Hit;
+		R.Details = Fmt("teammate sprints into the carrier: checks %d, loss %s", Sim.S[1].Hits, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss));
 		Out.push_back(R);
 	}
 
@@ -866,8 +929,11 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	using namespace SkateTeamTestsDetail;
 	TestPassAndReceive(Out);
 	TestNoStealFromTeammate(Out);
-	TestTeammateWaitsAndFaces(Out);
+	TestTeammateSupportsAhead(Out);
+	TestTeammateIgnoresOwnPass(Out);
 	TestTeammateFetches(Out);
+	TestBodyCheck(Out);
+	TestNoCheckBetweenTeammates(Out);
 	TestOpponentSteals(Out);
 	TestOpponentAttacksAndShoots(Out);
 	TestOpponentDodgesBlocker(Out);

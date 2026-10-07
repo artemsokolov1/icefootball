@@ -16,7 +16,7 @@
 //   LB           switch skater              Q
 //
 // Two skaters on the team, both played by this controller: the input drives the ACTIVE skater,
-// the other one gets simple AI input (FSkateTeammateAI: wait facing the ball / receive a pass /
+// the other one gets AI input (FSkateSkaterAI: chase, support, defend; the same AI drives the opponents;
 // fetch a loose ball / hold the ball). Control switches with LB / Q, and automatically to the
 // teammate a pass is played to and to a teammate that just got the ball.
 //
@@ -26,7 +26,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
-#include "Skate/Core/SkateOpponentAI.h"
+#include "Skate/Core/SkateSkaterAI.h"
 #include "SkatePlayerController.generated.h"
 
 class ASkateArena;
@@ -84,8 +84,9 @@ private:
 	void RefreshTeam();
 	void SwitchTo(int32 Index);
 	void UpdateAutoSwitch();
-	void DriveTeammates();
-	void DriveOpponents();
+	/** Every skater the player is not controlling gets its input from FSkateSkaterAI. */
+	void DriveAI();
+	void DriveSkater(ASkateCharacter* Skater, int32 Team, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode);
 	void SyncTeamSettings();
 
 	// Axis handlers
@@ -140,7 +141,8 @@ private:
 
 	TArray<TWeakObjectPtr<ASkateCharacter>> Team;
 	TArray<TWeakObjectPtr<ASkateCharacter>> Opponents;
-	TArray<FSkateOpponentBrain> OpponentBrains;
+	TArray<FSkateSkaterBrain> TeamBrains;
+	TArray<FSkateSkaterBrain> OpponentBrains;
 	TArray<uint8> OpponentModes;
 	int32 ActiveIndex = 0;
 	TArray<int32> SeenAcquires;

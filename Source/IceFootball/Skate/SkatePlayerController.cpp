@@ -11,7 +11,6 @@
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 #include "IceFootball.h"
-#include "Skate/Core/SkateTeamAI.h"
 #include "Skate/SkateArena.h"
 #include "Skate/SkateBall.h"
 #include "Skate/SkateBallControlComponent.h"
@@ -259,7 +258,7 @@ ASkateCharacter* ASkatePlayerController::GetSkater() const
 
 FString ASkatePlayerController::GetTeammateModeName() const
 {
-	return FString(ANSI_TO_TCHAR(SkateTeammateModeName(static_cast<ESkateTeammateMode>(TeammateMode))));
+	return FString(ANSI_TO_TCHAR(SkateSkaterModeName(static_cast<ESkateSkaterMode>(TeammateMode))));
 }
 
 void ASkatePlayerController::RefreshTeam()
@@ -300,6 +299,7 @@ void ASkatePlayerController::RefreshTeam()
 	}
 	Skaters.StableSort([](const ASkateCharacter& A, const ASkateCharacter& B) { return A.GetTeamSlot() < B.GetTeamSlot(); });
 	Team.Reset();
+	TeamBrains.Reset();
 	Opponents.Reset();
 	OpponentBrains.Reset();
 	OpponentModes.Reset();
@@ -325,6 +325,7 @@ void ASkatePlayerController::RefreshTeam()
 			ActiveIndex = Team.Num();
 		}
 		Team.Add(Skater);
+		TeamBrains.AddDefaulted();
 		const USkateBallControlComponent* Ball = Skater->GetBallControl();
 		SeenAcquires.Add(Ball ? Ball->GetAcquireCount() : 0);
 		SeenImpulses.Add(Ball ? Ball->GetImpulseCount() : 0);
@@ -441,37 +442,140 @@ void ASkatePlayerController::SyncTeamSettings()
 	}
 }
 
-void ASkatePlayerController::DriveTeammates()
+void ASkatePlayerController::DriveAI()
 {
 	const ASkateArena* Arena = CachedArena.Get();
 	const ASkateBall* Ball = Arena ? Arena->GetBall() : nullptr;
+	if (!Arena || !Ball)
+	{
+		return;
+	}
+	const FVector BallLoc = Ball->GetActorLocation();
+	// Nearest skater to the ball on each team is that team's chaser.
+	auto Nearest = [&](const TArray<TWeakObjectPtr<ASkateCharacter>>& Group)
+	{
+		int32 Best = INDEX_NONE;
+		float BestDist = TNumericLimits<float>::Max();
+		for (int32 Index = 0; Index < Group.Num(); ++Index)
+		{
+			const ASkateCharacter* Member = Group[Index].Get();
+			const float Dist = Member ? static_cast<float>(FVector::Dist2D(Member->GetActorLocation(), BallLoc)) : BestDist;
+			if (Member && Dist < BestDist)
+			{
+				BestDist = Dist;
+				Best = Index;
+			}
+		}
+		return Best;
+	};
+	const int32 TeamChaser = Nearest(Team);
+	const int32 OpponentChaser = Nearest(Opponents);
+	// The teammate's partner is the controlled skater; an opponent's partner is its other opponent.
 	for (int32 Index = 0; Index < Team.Num(); ++Index)
 	{
 		ASkateCharacter* Mate = Team[Index].Get();
-		if (Index == ActiveIndex || !Mate)
+		if (Index == ActiveIndex || !Mate || !TeamBrains.IsValidIndex(Index))
 		{
 			continue;
 		}
-		const USkateBallControlComponent* MateBall = Mate->GetBallControl();
-		FSkateTeammateView View;
-		const FVector Loc = Mate->GetActorLocation();
-		const FVector Vel = Mate->GetVelocity();
-		View.Pos = FSkateVec2(static_cast<float>(Loc.X), static_cast<float>(Loc.Y));
-		View.Vel = FSkateVec2(static_cast<float>(Vel.X), static_cast<float>(Vel.Y));
-		View.Heading = Mate->GetSkateMovement()->GetSkateState().Heading;
-		View.bHasBall = MateBall && MateBall->HasBall();
-		if (Ball)
+		DriveSkater(Mate, 0, Index == TeamChaser, GetSkater(), TeamBrains[Index], TeammateMode);
+	}
+	for (int32 Index = 0; Index < Opponents.Num(); ++Index)
+	{
+		ASkateCharacter* Rival = Opponents[Index].Get();
+		if (!Rival || !OpponentBrains.IsValidIndex(Index) || !OpponentModes.IsValidIndex(Index))
 		{
-			const FVector BallLoc = Ball->GetActorLocation();
-			const FVector BallVel = Ball->GetBallVelocity();
-			View.bBallValid = true;
-			View.BallPos = FSkateVec2(static_cast<float>(BallLoc.X), static_cast<float>(BallLoc.Y));
-			View.BallVel = FSkateVec2(static_cast<float>(BallVel.X), static_cast<float>(BallVel.Y));
-			View.bBallHeld = Ball->IsHeldByOther(MateBall);
+			continue;
 		}
-		ESkateTeammateMode Mode = ESkateTeammateMode::Wait;
-		Mate->ApplyMoveInput(FSkateTeammateAI::Think(View, &Mode));
-		TeammateMode = static_cast<uint8>(Mode);
+		const ASkateCharacter* Partner = nullptr;
+		for (int32 Other = 0; Other < Opponents.Num() && !Partner; ++Other)
+		{
+			Partner = Other != Index ? Opponents[Other].Get() : nullptr; // ponytail: first partner; nearest when teams grow
+		}
+		DriveSkater(Rival, 1, Index == OpponentChaser, Partner, OpponentBrains[Index], OpponentModes[Index]);
+	}
+}
+
+void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTeam, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode)
+{
+	const ASkateArena* Arena = CachedArena.Get();
+	const ASkateBall* Ball = Arena->GetBall();
+	auto To2D = [](const FVector& V) { return FSkateVec2(static_cast<float>(V.X), static_cast<float>(V.Y)); };
+	const FVector BallLoc = Ball->GetActorLocation();
+
+	// Who has the ball: a skater's ball control component or a keeper.
+	const ASkateCharacter* Carrier = nullptr;
+	bool bKeeperHolds = false;
+	if (const USkateBallControlComponent* HolderComp = Cast<USkateBallControlComponent>(Ball->GetHolder()))
+	{
+		Carrier = Cast<ASkateCharacter>(HolderComp->GetOwner());
+	}
+	else if (Ball->GetHolder())
+	{
+		bKeeperHolds = true;
+	}
+
+	FSkateSkaterView View;
+	const FVector Loc = Skater->GetActorLocation();
+	View.Pos = To2D(Loc);
+	View.Vel = To2D(Skater->GetVelocity());
+	View.Heading = Skater->GetSkateMovement()->GetSkateState().Heading;
+	View.bBallValid = true;
+	View.BallPos = To2D(BallLoc);
+	View.BallVel = To2D(Ball->GetBallVelocity());
+	if (Carrier == Skater)
+	{
+		View.BallOwner = ESkateBallOwner::Me;
+	}
+	else if (Carrier)
+	{
+		View.BallOwner = Carrier->GetTeam() == SkaterTeam ? ESkateBallOwner::Teammate : ESkateBallOwner::Opponent;
+	}
+	else if (bKeeperHolds)
+	{
+		View.BallOwner = ESkateBallOwner::Keeper;
+	}
+	View.bBallIsMyPass = Ball->IsPassFrom(Skater->GetBallControl());
+	View.bBallIsPassToMe = Ball->IsPassFor(Skater->GetBallControl());
+	// Team 0 attacks goal 0 (+X), team 1 attacks goal 1 (-X).
+	const FSkateGoalFrame Attack = Arena->GetGoalFrame(SkaterTeam == 0 ? 0 : 1);
+	const FSkateGoalFrame Own = Arena->GetGoalFrame(SkaterTeam == 0 ? 1 : 0);
+	View.AttackGoal = Attack.Center;
+	View.OwnGoal = Own.Center;
+	View.GoalHalfWidth = Attack.HalfWidth;
+	View.RinkHalf = To2D(FVector(Arena->GetLayout().RinkSize * 0.5f, 0.f));
+	View.bChaser = bChaser;
+	if (Mate)
+	{
+		View.bMateValid = true;
+		View.MatePos = To2D(Mate->GetActorLocation());
+		View.MateVel = To2D(Mate->GetVelocity());
+	}
+	float ThreatDist = TNumericLimits<float>::Max();
+	for (const TWeakObjectPtr<ASkateCharacter>& Member : SkaterTeam == 0 ? Opponents : Team)
+	{
+		const ASkateCharacter* Threat = Member.Get();
+		const float Dist = Threat ? static_cast<float>(FVector::Dist2D(Threat->GetActorLocation(), Loc)) : ThreatDist;
+		if (Threat && Dist < ThreatDist)
+		{
+			ThreatDist = Dist;
+			View.bThreatValid = true;
+			View.ThreatPos = To2D(Threat->GetActorLocation());
+		}
+	}
+
+	FSkateSkaterDecision Decision = FSkateSkaterAI::Think(View, Brain, GetWorld()->GetDeltaSeconds());
+	if (Arena->IsGoalPause())
+	{
+		Decision = FSkateSkaterDecision();
+		Decision.Move.Brake = 1.f;
+	}
+	Skater->ApplyMoveInput(Decision.Move, &Decision.Actions);
+	if (Mode != static_cast<uint8>(Decision.Mode))
+	{
+		Mode = static_cast<uint8>(Decision.Mode);
+		UE_LOG(LogIceSkate, Verbose, TEXT("%s %d: %s at (%.0f, %.0f), ball (%.0f, %.0f)"), SkaterTeam == 0 ? TEXT("Mate") : TEXT("CPU"),
+			Skater->GetTeamSlot() + 1, ANSI_TO_TCHAR(SkateSkaterModeName(Decision.Mode)), Loc.X, Loc.Y, BallLoc.X, BallLoc.Y);
 	}
 }
 
@@ -549,121 +653,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 	bKickReleaseEdge = false;
 
 	SyncTeamSettings();
-	DriveTeammates();
-	DriveOpponents();
-}
-
-void ASkatePlayerController::DriveOpponents()
-{
-	const ASkateArena* Arena = CachedArena.Get();
-	const ASkateBall* Ball = Arena ? Arena->GetBall() : nullptr;
-	if (!Arena || !Ball || Opponents.Num() == 0)
-	{
-		return;
-	}
-	const FVector BallLoc = Ball->GetActorLocation();
-	const FVector BallVel = Ball->GetBallVelocity();
-	// Who has the ball: a skater's ball control component or a keeper.
-	const ASkateCharacter* Carrier = nullptr;
-	bool bKeeperHolds = false;
-	if (const USkateBallControlComponent* HolderComp = Cast<USkateBallControlComponent>(Ball->GetHolder()))
-	{
-		Carrier = Cast<ASkateCharacter>(HolderComp->GetOwner());
-	}
-	else if (Ball->GetHolder())
-	{
-		bKeeperHolds = true;
-	}
-	// The opponent nearest to the ball is the chaser.
-	int32 Chaser = 0;
-	float ChaserDist = TNumericLimits<float>::Max();
-	for (int32 Index = 0; Index < Opponents.Num(); ++Index)
-	{
-		if (const ASkateCharacter* Mate = Opponents[Index].Get())
-		{
-			const float Dist = static_cast<float>(FVector::Dist2D(Mate->GetActorLocation(), BallLoc));
-			if (Dist < ChaserDist)
-			{
-				ChaserDist = Dist;
-				Chaser = Index;
-			}
-		}
-	}
-	// Team 1 attacks goal 1 (-X) and defends goal 0 (+X).
-	const FSkateGoalFrame Attack = Arena->GetGoalFrame(1);
-	const FSkateGoalFrame Own = Arena->GetGoalFrame(0);
-	const FVector2D RinkHalf = Arena->GetLayout().RinkSize * 0.5f;
-	const float Dt = GetWorld()->GetDeltaSeconds();
-	for (int32 Index = 0; Index < Opponents.Num(); ++Index)
-	{
-		ASkateCharacter* Mate = Opponents[Index].Get();
-		if (!Mate || !OpponentBrains.IsValidIndex(Index))
-		{
-			continue;
-		}
-		FSkateOpponentView View;
-		const FVector Loc = Mate->GetActorLocation();
-		const FVector Vel = Mate->GetVelocity();
-		View.Pos = FSkateVec2(static_cast<float>(Loc.X), static_cast<float>(Loc.Y));
-		View.Vel = FSkateVec2(static_cast<float>(Vel.X), static_cast<float>(Vel.Y));
-		View.Heading = Mate->GetSkateMovement()->GetSkateState().Heading;
-		View.bBallValid = true;
-		View.BallPos = FSkateVec2(static_cast<float>(BallLoc.X), static_cast<float>(BallLoc.Y));
-		View.BallVel = FSkateVec2(static_cast<float>(BallVel.X), static_cast<float>(BallVel.Y));
-		if (Carrier == Mate)
-		{
-			View.BallOwner = ESkateBallOwner::Me;
-		}
-		else if (Carrier)
-		{
-			View.BallOwner = Carrier->GetTeam() == Mate->GetTeam() ? ESkateBallOwner::Teammate : ESkateBallOwner::Opponent;
-		}
-		else if (bKeeperHolds)
-		{
-			View.BallOwner = ESkateBallOwner::Keeper;
-		}
-		View.AttackGoal = Attack.Center;
-		View.OwnGoal = Own.Center;
-		View.GoalHalfWidth = Attack.HalfWidth;
-		View.RinkHalf = FSkateVec2(static_cast<float>(RinkHalf.X), static_cast<float>(RinkHalf.Y));
-		View.bChaser = Index == Chaser;
-		float ThreatDist = TNumericLimits<float>::Max();
-		for (const TWeakObjectPtr<ASkateCharacter>& Member : Team)
-		{
-			const ASkateCharacter* Threat = Member.Get();
-			const float Dist = Threat ? static_cast<float>(FVector::Dist2D(Threat->GetActorLocation(), Loc)) : ThreatDist;
-			if (Threat && Dist < ThreatDist)
-			{
-				ThreatDist = Dist;
-				View.bThreatValid = true;
-				View.ThreatPos = FSkateVec2(static_cast<float>(Threat->GetActorLocation().X), static_cast<float>(Threat->GetActorLocation().Y));
-			}
-		}
-		for (int32 Other = 0; Other < Opponents.Num(); ++Other)
-		{
-			const ASkateCharacter* Partner = Other != Index ? Opponents[Other].Get() : nullptr;
-			if (Partner)
-			{
-				View.bMateValid = true;
-				View.MatePos = FSkateVec2(static_cast<float>(Partner->GetActorLocation().X), static_cast<float>(Partner->GetActorLocation().Y));
-				View.MateVel = FSkateVec2(static_cast<float>(Partner->GetVelocity().X), static_cast<float>(Partner->GetVelocity().Y));
-				break; // ponytail: first partner; nearest one when the team grows past two
-			}
-		}
-		FSkateOpponentDecision Decision = FSkateOpponentAI::Think(View, OpponentBrains[Index], Dt);
-		if (Arena->IsGoalPause())
-		{
-			Decision = FSkateOpponentDecision();
-			Decision.Move.Brake = 1.f;
-		}
-		Mate->ApplyMoveInput(Decision.Move, &Decision.Actions);
-		if (OpponentModes.IsValidIndex(Index) && OpponentModes[Index] != static_cast<uint8>(Decision.Mode))
-		{
-			OpponentModes[Index] = static_cast<uint8>(Decision.Mode);
-			UE_LOG(LogIceSkate, Verbose, TEXT("CPU %d: %s at (%.0f, %.0f), ball (%.0f, %.0f)"), Mate->GetTeamSlot() + 1,
-				ANSI_TO_TCHAR(SkateOpponentModeName(Decision.Mode)), Loc.X, Loc.Y, BallLoc.X, BallLoc.Y);
-		}
-	}
+	DriveAI();
 }
 
 // ---- Axis handlers ----

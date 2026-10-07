@@ -148,6 +148,11 @@ bool ASkateBall::IsPassFor(const UObject* Receiver) const
 	return LastImpulseKind == ESkateImpulseKind::Push && LastImpulseSource.Get() != Receiver && GetTimeSinceGameplayImpulse() < 6.f;
 }
 
+bool ASkateBall::IsPassFrom(const UObject* Source) const
+{
+	return LastImpulseKind == ESkateImpulseKind::Push && LastImpulseSource.Get() == Source && GetTimeSinceGameplayImpulse() < 6.f;
+}
+
 void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source)
 {
 	const double Now = GetWorld()->GetTimeSeconds();

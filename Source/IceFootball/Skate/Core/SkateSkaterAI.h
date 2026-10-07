@@ -1,15 +1,26 @@
-// Ice skating prototype - the opposing team's skaters (engine independent).
+// Ice skating prototype - AI for every skater the player is not controlling (engine independent).
 //
-// Two roles, decided by the caller: the "chaser" (nearest to the ball) goes for the ball or presses
-// the carrier; the other one supports an attacking teammate or drops back between the ball and the
-// own goal. With the ball: skate at the goal, pass to a teammate that is clearly ahead, shoot at the
-// far corner once close enough and facing the goal. Shots and passes use the same charge-and-release
-// buttons as the player, so the ball control code does not know who is pressing them.
+// Used for the player's teammate and for both opponents. Two roles, decided by the caller: the
+// "chaser" (nearest to the ball on its team) goes for the ball or presses the carrier; the other one
+// supports an attacking teammate or drops back between the ball and the own goal. With the ball: skate
+// at the goal, pass to a teammate that is clearly ahead, shoot at the far corner once close enough and
+// facing the goal. (The player's teammate hands control to the player as soon as it traps the ball, so
+// for it only the off-ball roles matter.) Shots and passes use the same charge-and-release buttons as
+// the player, so the ball control code does not know who is pressing them.
 #pragma once
 
 #include "SkateBallControl.h"
 #include "SkateMath.h"
 #include "SkateModel.h"
+
+/** Shared steering primitives. */
+namespace SkateSteer
+{
+	/** Stop and turn the skates towards Target. */
+	FSkateMoveInput Face(const FSkateVec2& Pos, const FSkateVec2& Heading, const FSkateVec2& Target);
+	/** Skate to Point and stop there facing LookAt (brakes in time, eases off on arrival). */
+	FSkateMoveInput GoTo(const FSkateVec2& Pos, const FSkateVec2& Vel, const FSkateVec2& Heading, const FSkateVec2& Point, const FSkateVec2& LookAt);
+}
 
 enum class ESkateBallOwner : unsigned char
 {
@@ -20,7 +31,7 @@ enum class ESkateBallOwner : unsigned char
 	Keeper,
 };
 
-struct FSkateOpponentView
+struct FSkateSkaterView
 {
 	FSkateVec2 Pos;
 	FSkateVec2 Vel;
@@ -30,13 +41,17 @@ struct FSkateOpponentView
 	FSkateVec2 BallPos;
 	FSkateVec2 BallVel;
 	ESkateBallOwner BallOwner = ESkateBallOwner::Nobody;
+	/** The loose ball is my own pass: let the receiver have it (no chasing it down). */
+	bool bBallIsMyPass = false;
+	/** The loose ball is a pass from someone else (teammate, keeper): settle where it comes past. */
+	bool bBallIsPassToMe = false;
 
 	/** Goal line centres on the ice and the mouth half width. */
 	FSkateVec2 AttackGoal;
 	FSkateVec2 OwnGoal;
 	float GoalHalfWidth = 260.f;
 	/** Half size of the rink: targets are kept inside. */
-	FSkateVec2 RinkHalf = FSkateVec2(2500.f, 1600.f);
+	FSkateVec2 RinkHalf = FSkateVec2(3000.f, 1500.f);
 
 	/** This skater is the one of its team nearest to the ball. */
 	bool bChaser = true;
@@ -48,9 +63,10 @@ struct FSkateOpponentView
 	FSkateVec2 ThreatPos;
 };
 
-enum class ESkateOpponentMode : unsigned char
+enum class ESkateSkaterMode : unsigned char
 {
 	Wait,
+	Receive,
 	Chase,
 	Press,
 	Defend,
@@ -60,10 +76,10 @@ enum class ESkateOpponentMode : unsigned char
 	Pass,
 };
 
-const char* SkateOpponentModeName(ESkateOpponentMode Mode);
+const char* SkateSkaterModeName(ESkateSkaterMode Mode);
 
 /** Per-skater memory: a button held for a charge. */
-struct FSkateOpponentBrain
+struct FSkateSkaterBrain
 {
 	/** Seconds left on the button being held (shot or pass); < 0 = not charging. */
 	float ChargeLeft = -1.f;
@@ -71,17 +87,17 @@ struct FSkateOpponentBrain
 	FSkateVec2 Aim;
 };
 
-struct FSkateOpponentDecision
+struct FSkateSkaterDecision
 {
 	FSkateMoveInput Move;
 	FSkateBallActionInput Actions;
-	ESkateOpponentMode Mode = ESkateOpponentMode::Wait;
+	ESkateSkaterMode Mode = ESkateSkaterMode::Wait;
 };
 
-class FSkateOpponentAI
+class FSkateSkaterAI
 {
 public:
-	static FSkateOpponentDecision Think(const FSkateOpponentView& View, FSkateOpponentBrain& Brain, float Dt);
+	static FSkateSkaterDecision Think(const FSkateSkaterView& View, FSkateSkaterBrain& Brain, float Dt);
 
 	/** Shoots from closer than this (cm to the goal line centre) ... */
 	static constexpr float ShootDistance = 1100.f;
@@ -103,6 +119,10 @@ public:
 	static constexpr float AvoidDistance = 350.f;
 	static constexpr float AvoidConeDeg = 50.f;
 	static constexpr float AvoidTurnDeg = 65.f;
+	/** A pass is received where its path passes within this distance (cm) and within this time (s). */
+	static constexpr float ReceiveRadius = 500.f;
+	static constexpr float ReceiveHorizon = 3.f;
+	static constexpr float ReceiveMinBallSpeed = 250.f;
 	/** Skate with boost when farther than this (cm) from the target. */
 	static constexpr float BoostDistance = 800.f;
 	static constexpr float BoostAmount = 0.5f;

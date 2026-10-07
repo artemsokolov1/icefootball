@@ -508,6 +508,41 @@ struct FSkateBallPhysicsTuning
 	bool bUseCCD = true;
 };
 
+/** Body checks between skaters of different teams (FSkateHit). Contact only, no button. */
+USTRUCT(BlueprintType)
+struct FSkateHitTuning
+{
+	GENERATED_BODY()
+
+	/** The two skaters must close on each other at least this fast (cm/s, sum along the contact line). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
+	float MinClosingSpeed = 320.f;
+
+	/** The hitter must skate at least this fast (cm/s) ... */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
+	float MinHitterSpeed = 300.f;
+
+	/** ... and within this angle (deg) of the direction to the victim (a sideways brush is no check). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0", ClampMax = "90"))
+	float FrontConeDeg = 60.f;
+
+	/** Speed (cm/s) added to the victim along the contact line. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
+	float Push = 450.f;
+
+	/** Fraction of its speed the hitter keeps. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0", ClampMax = "1"))
+	float HitterKeepsSpeed = 0.55f;
+
+	/** The victim has no stick and no ball control for this long (s): a carried ball is knocked loose. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
+	float StunTime = 0.7f;
+
+	/** No second check on either skater within this time (s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
+	float Cooldown = 1.0f;
+};
+
 /** NHL-style side camera (ASkateCameraRig): high on the stands, looks across the rink, slides along it. */
 USTRUCT(BlueprintType)
 struct FSkateCameraTuning
@@ -754,6 +789,9 @@ struct FSkateTuning
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
 	FSkateBallPhysicsTuning BallPhysics;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Tuning")
+	FSkateHitTuning Hit;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
 	FSkateCameraTuning Camera;

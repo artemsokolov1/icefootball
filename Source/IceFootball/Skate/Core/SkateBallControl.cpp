@@ -36,6 +36,7 @@ const char* SkatePossessionLossName(ESkatePossessionLoss Loss)
 	case ESkatePossessionLoss::Airborne: return "Airborne";
 	case ESkatePossessionLoss::Disabled: return "Disabled";
 	case ESkatePossessionLoss::Taken: return "Taken";
+	case ESkatePossessionLoss::Hit: return "Hit";
 	}
 	return "?";
 }
@@ -234,6 +235,7 @@ bool FSkateBallControl::CanAcquire(const FSkateBallControlTuning& Tuning, const 
 	return PT.bEnabled
 		&& Query.bHasBall
 		&& Query.bInteractionEnabled
+		&& !Query.bStunned
 		&& (!Query.bBallHeldByOther || Query.bStealAllowed)
 		&& Report.bInTrapZone
 		&& Report.RelativeSpeed <= MaxRelSpeed
@@ -377,6 +379,10 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		{
 			ReleasePossession(State, ESkatePossessionLoss::Disabled);
 		}
+		else if (Query.bStunned)
+		{
+			ReleasePossession(State, ESkatePossessionLoss::Hit);
+		}
 		else if (Query.bBallHeldByOther)
 		{
 			ReleasePossession(State, ESkatePossessionLoss::Taken);
@@ -392,7 +398,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	}
 
 	// A carried ball is at the feet by definition: push / kick are always in reach.
-	const bool bActionReach = !Query.bBallHeldByOther
+	const bool bActionReach = !Query.bBallHeldByOther && !Query.bStunned
 		&& (Poss.bPossessed || OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly);
 	// One impulse per ball per frame overall, also across skaters and the keeper.
 	const bool bGapOk = State.TimeSinceImpulse >= MinImpulseGap && Query.BallTimeSinceImpulse >= MinImpulseGap;
@@ -465,7 +471,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 			*OutCarry = Carry;
 		}
 	}
-	else if (Query.bHasBall && Query.bInteractionEnabled && !Query.bBallHeldByOther && bGapOk)
+	else if (Query.bHasBall && Query.bInteractionEnabled && !Query.bStunned && !Query.bBallHeldByOther && bGapOk)
 	{
 		// Loose ball: dribble touches only in the non-possession mode; the body always blocks.
 		if (!PT.bEnabled && OutReport.bTouchAllowed && !OutReport.bOnCooldown)

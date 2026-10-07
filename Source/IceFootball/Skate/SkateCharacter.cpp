@@ -1,6 +1,8 @@
 #include "Skate/SkateCharacter.h"
 
 #include "Components/CapsuleComponent.h"
+#include "IceFootball.h"
+#include "Skate/Core/SkateHit.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Skate/Core/SkateTuningPresets.h"
@@ -154,7 +156,7 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 	MoveInput.Magnitude = LastStick.Magnitude;
 	MoveInput.Brake = LastBrake;
 	MoveInput.Boost = LastBoost;
-	SkateMovement->SetSkateInput(MoveInput);
+	SkateMovement->SetSkateInput(IsStunned() ? FSkateMoveInput() : MoveInput);
 
 	if (BallControl)
 	{
@@ -169,7 +171,7 @@ void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input, const FSkateB
 	LastStick.Magnitude = Input.Magnitude;
 	LastBrake = Input.Brake;
 	LastBoost = Input.Boost;
-	SkateMovement->SetSkateInput(Input);
+	SkateMovement->SetSkateInput(IsStunned() ? FSkateMoveInput() : Input);
 	if (BallControl && Actions)
 	{
 		BallControl->QueueActions(Actions->bPushPressed, Actions->bPushReleased, Actions->bKickPressed, Actions->bKickReleased);
@@ -203,9 +205,54 @@ void ASkateCharacter::ResetSkater(const FTransform& Transform)
 	}
 }
 
+void ASkateCharacter::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation,
+	FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
+{
+	Super::NotifyHit(MyComp, Other, OtherComp, bSelfMoved, HitLocation, HitNormal, NormalImpulse, Hit);
+	ASkateCharacter* Rival = Cast<ASkateCharacter>(Other);
+	const FSkateHitTuning& HT = GetActiveTuning().Hit;
+	if (!Rival || Rival->GetTeam() == Team || TimeSinceHit < HT.Cooldown || Rival->TimeSinceHit < HT.Cooldown || !SkateMovement || !Rival->SkateMovement)
+	{
+		return;
+	}
+	auto To2D = [](const FVector& V) { return FSkateVec2(static_cast<float>(V.X), static_cast<float>(V.Y)); };
+	const FSkateHitResult Result = FSkateHit::Resolve(HT, To2D(GetActorLocation()), To2D(SkateMovement->Velocity),
+		To2D(Rival->GetActorLocation()), To2D(Rival->SkateMovement->Velocity));
+	if (!Result.bHit)
+	{
+		return;
+	}
+	ASkateCharacter* Hitter = Result.Hitter == 0 ? this : Rival;
+	ASkateCharacter* Victim = Result.Hitter == 0 ? Rival : this;
+	Hitter->SkateMovement->Velocity.X = Result.HitterVelocity.X;
+	Hitter->SkateMovement->Velocity.Y = Result.HitterVelocity.Y;
+	Hitter->TimeSinceHit = 0.f;
+	Victim->ApplyHit(FVector2D(Result.VictimVelocity.X, Result.VictimVelocity.Y), HT.StunTime);
+	UE_LOG(LogIceSkate, Verbose, TEXT("CHECK: team %d slot %d hits team %d slot %d, victim shoved at %.0f cm/s"), Hitter->Team, Hitter->TeamSlot,
+		Victim->Team, Victim->TeamSlot, Result.VictimVelocity.Size());
+}
+
+void ASkateCharacter::ApplyHit(const FVector2D& NewVelocity, float Stun)
+{
+	if (SkateMovement)
+	{
+		SkateMovement->Velocity.X = NewVelocity.X;
+		SkateMovement->Velocity.Y = NewVelocity.Y;
+		SkateMovement->SetSkateInput(FSkateMoveInput());
+	}
+	StunLeft = Stun;
+	TimeSinceHit = 0.f;
+	if (BallControl)
+	{
+		BallControl->CancelActions();
+	}
+}
+
 void ASkateCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	StunLeft = FMath::Max(0.f, StunLeft - DeltaSeconds);
+	TimeSinceHit += DeltaSeconds;
 	if (bDebugEnabled)
 	{
 		DrawMovementDebug();

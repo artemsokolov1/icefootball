@@ -59,6 +59,15 @@ public:
 	/** Drops a pass / shot wind-up in progress (the player switched to the other skater). */
 	void CancelBallActions();
 
+	/** Body checks: capsule contact with a skater of the other team (see FSkateHit). */
+	virtual void NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation,
+		FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
+	/** Shoved by a check: new velocity, no stick and no ball for Stun seconds. */
+	void ApplyHit(const FVector2D& NewVelocity, float Stun);
+	bool IsStunned() const { return StunLeft > 0.f; }
+	/** Seconds since this skater delivered or took a check (HUD flash, cooldown). */
+	float GetTimeSinceHit() const { return TimeSinceHit; }
+
 	/** Team 0 = the player's (attacks +X), 1 = the opponents (AI). Slot 0 / 1 within the team: spawn point, chest patch. */
 	void SetTeam(int32 InTeam) { Team = InTeam; }
 	int32 GetTeam() const { return Team; }
@@ -140,6 +149,8 @@ private:
 
 	FSkateStickResult LastStick;
 	FSkateFrameInput LastFrameInput;
+	float StunLeft = 0.f;
+	float TimeSinceHit = 100.f;
 	float LastBrake = 0.f;
 	float LastBoost = 0.f;
 };

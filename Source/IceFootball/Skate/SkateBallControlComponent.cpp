@@ -172,6 +172,7 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	Query.StickDir = Skater->GetLastStick().Direction;
 	Query.StickMag = Skater->GetLastStick().Magnitude;
 	Query.bInteractionEnabled = bInteractionEnabled;
+	Query.bStunned = Skater->IsStunned();
 
 	ASkateBall* B = FindBall();
 	if (B)

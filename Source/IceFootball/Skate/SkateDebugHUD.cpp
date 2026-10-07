@@ -181,6 +181,11 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 			Arena->GetScore(0), Arena->GetScore(1));
 		DrawText(Text, Arena->GetLastGoalTeam() == 0 ? Good : Note, Canvas->ClipX * 0.5f - 170.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.6f);
 	}
+	else if (Skater->GetTimeSinceHit() < 0.8f)
+	{
+		DrawText(Skater->IsStunned() ? TEXT("CHECKED!") : TEXT("CHECK!"), Skater->IsStunned() ? Note : Good, Canvas->ClipX * 0.5f - 60.f, Canvas->ClipY * 0.22f,
+			GEngine->GetLargeFont(), 1.4f);
+	}
 	else if (Keeper && Keeper->GetTimeSinceAction() < 1.2f
 		&& (Keeper->GetLastAction() == ESkateKeeperAction::Parry || Keeper->GetLastAction() == ESkateKeeperAction::Catch))
 	{

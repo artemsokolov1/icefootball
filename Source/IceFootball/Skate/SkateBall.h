@@ -56,6 +56,8 @@ public:
 	float GetTimeSinceGameplayImpulse() const;
 	/** The ball is a pass (push / throw-out) that Receiver did not make itself. */
 	bool IsPassFor(const UObject* Receiver) const;
+	/** The ball is a pass that Source just played (the passer does not chase it). */
+	bool IsPassFrom(const UObject* Source) const;
 
 	/** Possession: while carried, damping and rolling resistance are off and the velocity is steered every
 	 *  frame by SetCarriedVelocity (not a gameplay impulse). The ball keeps colliding with everything. */
