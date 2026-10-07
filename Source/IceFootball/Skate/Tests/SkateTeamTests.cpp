@@ -7,6 +7,7 @@
 #include "../Core/SkateSkaterAI.h"
 #include "../Core/SkateTuningPresets.h"
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <functional>
@@ -136,6 +137,9 @@ namespace SkateTeamTestsDetail
 				&& S[Holder].Control.Possession.TimeHeld >= T.BallControl.Possession.StealProtectTime;
 			Q.BallTimeSinceImpulse = BallSinceImpulse;
 			Q.bIncomingPass = LastKind == ESkateImpulseKind::Push && LastSource != Index;
+			Q.bPassTargetValid = Team[1 - Index] == Team[Index];
+			Q.PassTargetPos = S[1 - Index].Pos;
+			Q.PassTargetVel = S[1 - Index].State.Velocity;
 			return Q;
 		}
 
@@ -455,6 +459,45 @@ namespace SkateTeamTestsDetail
 		}
 		R.bPassed = bOk;
 		R.Details = Info;
+		Out.push_back(R);
+	}
+
+	// Direction of a tap pass played with the stick at +X while the teammate stands at MatePos.
+	FSkateVec2 TapPassDirection(const FSkateVec2& MatePos, float Dt)
+	{
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, MatePos, FSkateVec2(-1.f, 0.f));
+		Sim.GiveBall(0, Dt);
+		Sim.Run(0.5f, Dt, [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0] = Stick(FSkateVec2(1.f, 0.f), 0.f, 1.f); In[1].Brake = 1.f; });
+		FSkateVec2 Dir;
+		bool bPressed = false;
+		Sim.Run(1.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput* Act)
+		{
+			In[0] = Stick(FSkateVec2(1.f, 0.f), 0.2f, 1.f);
+			In[1].Brake = 1.f;
+			if (!bPressed) { Act[0].bPushPressed = true; Act[0].bPushReleased = true; bPressed = true; }
+			if (Sim.LastKind == ESkateImpulseKind::Push && Sim.LastSource == 0 && Dir.SizeSquared() < 0.5f && Sim.BallSinceImpulse < Dt)
+			{
+				Dir = Sim.BallVel.XY().GetSafeNormal();
+			}
+		});
+		return Dir;
+	}
+
+	void TestPassAssist(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.PassAssistAimsAtTeammate");
+		const float Dt = 1.f / 60.f;
+		const FSkateVec2 Near(1200.f, 500.f);  // 23 deg off the stick: assisted
+		const FSkateVec2 Wide(800.f, 1400.f);  // 60 deg off: the stick is obeyed
+		const FSkateVec2 DirNear = TapPassDirection(Near, Dt);
+		const FSkateVec2 DirWide = TapPassDirection(Wide, Dt);
+		const float ErrNear = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(DirNear.Dot(Near.GetSafeNormal()), -1.f, 1.f));
+		const float ErrWide = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(DirWide.Dot(FSkateVec2(1.f, 0.f)), -1.f, 1.f));
+		R.bPassed = DirNear.SizeSquared() > 0.5f && DirWide.SizeSquared() > 0.5f && ErrNear < 4.f && ErrWide < 4.f;
+		R.Details = Fmt("stick +X, teammate 23 deg off: pass goes %.1f deg from the teammate; teammate 60 deg off: pass goes %.1f deg from the stick",
+			ErrNear, ErrWide);
 		Out.push_back(R);
 	}
 
@@ -1039,6 +1082,7 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 {
 	using namespace SkateTeamTestsDetail;
 	TestPassAndReceive(Out);
+	TestPassAssist(Out);
 	TestNoStealFromTeammate(Out);
 	TestTeammateSupportsAhead(Out);
 	TestTeammateIgnoresOwnPass(Out);

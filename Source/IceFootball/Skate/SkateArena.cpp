@@ -707,11 +707,13 @@ int32 ASkateArena::BallInGoal() const
 	{
 		return INDEX_NONE;
 	}
-	if (Local.X > LineX + Ball->GetRadius())
+	// Inside the net only: behind the net (between it and the end boards) is open ice, as in hockey.
+	const float R = Ball->GetRadius();
+	if (Local.X > LineX + R && Local.X < LineX + Layout.GoalDepth)
 	{
 		return 0;
 	}
-	if (Local.X < -LineX - Ball->GetRadius())
+	if (Local.X < -LineX - R && Local.X > -LineX - Layout.GoalDepth)
 	{
 		return 1;
 	}

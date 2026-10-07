@@ -195,6 +195,19 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		}
 		Query.BallTimeSinceImpulse = B->GetTimeSinceGameplayImpulse();
 		Query.bIncomingPass = B->IsPassFor(this);
+		// Pass assist target: the nearest teammate.
+		float MateDist = TNumericLimits<float>::Max();
+		for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
+		{
+			const float Dist = static_cast<float>(FVector::Dist2D(It->GetActorLocation(), SkaterLoc));
+			if (*It != Skater && It->GetTeam() == Skater->GetTeam() && Dist < MateDist)
+			{
+				MateDist = Dist;
+				Query.bPassTargetValid = true;
+				Query.PassTargetPos = FSkateVec2(static_cast<float>(It->GetActorLocation().X), static_cast<float>(It->GetActorLocation().Y));
+				Query.PassTargetVel = FSkateVec2(static_cast<float>(It->GetVelocity().X), static_cast<float>(It->GetVelocity().Y));
+			}
+		}
 		if (PlanarDist <= TraceRange)
 		{
 			FindBoards(*Skater, *B, Query);

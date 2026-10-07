@@ -1,5 +1,7 @@
 #include "SkateBallControl.h"
 
+#include <cmath>
+
 namespace SkateBallControlDetail
 {
 	// The working foot sits slightly in front of the skater centre.
@@ -534,10 +536,21 @@ FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tun
 	Impulse.Kind = ESkateImpulseKind::Push;
 	Impulse.Power = SkateMath::Clamp01(Power);
 	const FSkateVec2 Normal = ContactNormal(Query);
-	const FSkateVec2 Desired = DesiredDirection(Query, 0.2f);
+	FSkateVec2 Desired = DesiredDirection(Query, 0.2f);
+	const float BaseSpeed = SkateMath::Lerp(Tuning.PushSpeed, SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed), Impulse.Power);
+	if (Query.bPassTargetValid)
+	{
+		// Pass assist: aimed roughly at the teammate -> lead it to where the teammate will be when the ball arrives.
+		const FSkateVec2 ToMateNow = Query.PassTargetPos - Query.BallPos.XY();
+		const float Flight = ToMateNow.Size() / SkateMath::Max(BaseSpeed, 1.f);
+		const FSkateVec2 MateDir = (ToMateNow + Query.PassTargetVel * Flight).GetSafeNormal(Desired);
+		if (Desired.Dot(MateDir) >= std::cos(Tuning.PassAssistAngle * SkateMath::DegToRad))
+		{
+			Desired = MateDir;
+		}
+	}
 	const FSkateVec2 Dir = LimitDeviation(Normal, Desired, Tuning.PushMaxDeviation);
-	const float Speed = SkateMath::Lerp(Tuning.PushSpeed, SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed), Impulse.Power)
-		+ Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
+	const float Speed = BaseSpeed + Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
 
 	Impulse.Direction = Dir;
 	Impulse.NewBallVelocity = FSkateVec3(Dir * Speed, Query.BallVel.Z);

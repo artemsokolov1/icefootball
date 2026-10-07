@@ -391,6 +391,10 @@ struct FSkateBallControlTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
 	float PushSpeed = 1150.f;
 
+	/** Pass assist: a pass aimed within this angle (deg) of a teammate is sent to where that teammate will be. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "90"))
+	float PassAssistAngle = 40.f;
+
 	/** Pass ball speed (cm/s) at full charge. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
 	float PassMaxSpeed = 2300.f;

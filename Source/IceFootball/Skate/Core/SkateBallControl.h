@@ -108,6 +108,11 @@ struct FSkateContactQuery
 	/** The ball is a pass (its last impulse was a push / throw-out from someone else): may be received firmer. */
 	bool bIncomingPass = false;
 
+	/** Nearest teammate (pass assist): a pass aimed roughly at it is sent to where it will be. */
+	bool bPassTargetValid = false;
+	FSkateVec2 PassTargetPos;
+	FSkateVec2 PassTargetVel;
+
 	/** Boards near the skater: the carried ball is kept in front of them instead of being pressed in. */
 	static constexpr int MaxWalls = 4;
 	FSkateWallPlane Walls[MaxWalls];
