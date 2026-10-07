@@ -8,8 +8,6 @@
 
 namespace SkatePuppetDetail
 {
-	const FLinearColor Jersey(0.85f, 0.18f, 0.08f);
-	const FLinearColor JerseyDark(0.62f, 0.12f, 0.05f);
 	const FLinearColor Pants(0.06f, 0.08f, 0.22f);
 	const FLinearColor Skin(0.92f, 0.72f, 0.58f);
 	const FLinearColor Gloves(0.04f, 0.04f, 0.05f);
@@ -53,16 +51,16 @@ void USkaterPuppetComponent::BuildParts()
 		return Part;
 	};
 	PelvisPart = Add(TEXT("Cube"), Pants);
-	ChestPart = Add(TEXT("Cube"), Jersey);
+	ChestPart = Add(TEXT("Cube"), JerseyColor);
 	ChestMarkPart = Add(TEXT("Cube"), MarkColor);
 	NeckPart = Add(TEXT("Cylinder"), Skin);
 	HeadPart = Add(TEXT("Sphere"), Skin);
 	VisorPart = Add(TEXT("Cube"), Boots);
 	for (int32 Side = 0; Side < 2; ++Side)
 	{
-		ShoulderPart[Side] = Add(TEXT("Sphere"), Jersey);
-		UpperArmPart[Side] = Add(TEXT("Cylinder"), Jersey);
-		ForearmPart[Side] = Add(TEXT("Cylinder"), JerseyDark);
+		ShoulderPart[Side] = Add(TEXT("Sphere"), JerseyColor);
+		UpperArmPart[Side] = Add(TEXT("Cylinder"), JerseyColor);
+		ForearmPart[Side] = Add(TEXT("Cylinder"), JerseyDarkColor);
 		HandPart[Side] = Add(TEXT("Sphere"), Gloves);
 		ThighPart[Side] = Add(TEXT("Cylinder"), Pants);
 		ShinPart[Side] = Add(TEXT("Cylinder"), Pants);

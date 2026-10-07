@@ -97,6 +97,9 @@ struct FSkateContactQuery
 
 	/** Another player (teammate / keeper) holds the ball: no trap, no touch, no impulse from this skater. */
 	bool bBallHeldByOther = false;
+	/** The holder is an opponent past its protection time (Possession.StealProtectTime): this skater may
+	 *  trap the ball off its feet (the usual trap zone / speed rules still apply). */
+	bool bStealAllowed = false;
 	/** Time (s) since ANY gameplay impulse on the ball (other skaters, keeper): one impulse per frame overall. */
 	float BallTimeSinceImpulse = 100.f;
 	/** The ball is a pass (its last impulse was a push / throw-out from someone else): may be received firmer. */

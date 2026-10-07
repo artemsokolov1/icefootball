@@ -26,6 +26,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Skate/Core/SkateOpponentAI.h"
 #include "SkatePlayerController.generated.h"
 
 class ASkateArena;
@@ -57,6 +58,8 @@ public:
 	const TArray<TWeakObjectPtr<ASkateCharacter>>& GetTeam() const { return Team; }
 	/** Last AI decision of the not-controlled teammate (debug HUD). */
 	FString GetTeammateModeName() const;
+	/** The opposing (AI) skaters. */
+	const TArray<TWeakObjectPtr<ASkateCharacter>>& GetOpponents() const { return Opponents; }
 
 	/** Switch control to the teammate the player passes to, and to a teammate that gets the ball. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
@@ -82,6 +85,7 @@ private:
 	void SwitchTo(int32 Index);
 	void UpdateAutoSwitch();
 	void DriveTeammates();
+	void DriveOpponents();
 	void SyncTeamSettings();
 
 	// Axis handlers
@@ -135,6 +139,9 @@ private:
 	UInputAction* IA_Switch = nullptr;
 
 	TArray<TWeakObjectPtr<ASkateCharacter>> Team;
+	TArray<TWeakObjectPtr<ASkateCharacter>> Opponents;
+	TArray<FSkateOpponentBrain> OpponentBrains;
+	TArray<uint8> OpponentModes;
 	int32 ActiveIndex = 0;
 	TArray<int32> SeenAcquires;
 	TArray<int32> SeenImpulses;

@@ -238,6 +238,10 @@ struct FSkatePossessionTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
 	float AcquireCooldownAfterLoss = 0.35f;
 
+	/** An opponent may take the ball off the feet only after it has been held this long (s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float StealProtectTime = 0.5f;
+
 	/** No re-trap for this long (s) after the ball bounced off the legs (short: a ball pinned at the board
 	 *  must not ping-pong between the board and the skates). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))

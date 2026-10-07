@@ -17,6 +17,7 @@ class USkateBallControlComponent;
 class USkaterPuppetComponent;
 class USkateFeedbackComponent;
 class USkateIceSynth;
+struct FSkateBallActionInput;
 
 /** Raw per-frame input gathered by the controller (before shaping). */
 struct FSkateFrameInput
@@ -52,13 +53,15 @@ public:
 	/** Called by the controller every frame before movement runs. */
 	void ApplyFrameInput(const FSkateFrameInput& Input);
 
-	/** Teammate AI: a ready world-space skate input (no stick shaping, no ball buttons). */
-	void ApplyMoveInput(const FSkateMoveInput& Input);
+	/** AI skaters: a ready world-space skate input (no stick shaping) and optional ball buttons. */
+	void ApplyMoveInput(const FSkateMoveInput& Input, const FSkateBallActionInput* Actions = nullptr);
 
 	/** Drops a pass / shot wind-up in progress (the player switched to the other skater). */
 	void CancelBallActions();
 
-	/** 0 = first skater (player spawn), 1 = teammate. Picks the spawn point and the chest patch colour. */
+	/** Team 0 = the player's (attacks +X), 1 = the opponents (AI). Slot 0 / 1 within the team: spawn point, chest patch. */
+	void SetTeam(int32 InTeam) { Team = InTeam; }
+	int32 GetTeam() const { return Team; }
 	void SetTeamSlot(int32 InSlot) { TeamSlot = InSlot; }
 	int32 GetTeamSlot() const { return TeamSlot; }
 
@@ -125,6 +128,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
 	bool bDebugEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
+	int32 Team = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
 	int32 TeamSlot = 0;

@@ -36,6 +36,10 @@ namespace SkateArenaDetail
 	constexpr float ConeBase = 30.f;
 	constexpr float PostRadius = 7.f;
 	constexpr float NetThickness = 4.f;
+	// Trapezoid behind the net (hockey): half width at the goal line and at the end boards.
+	constexpr float TrapezoidNearHalf = 335.f;
+	constexpr float TrapezoidFarHalf = 425.f;
+	constexpr float FaceOffRadius = 450.f;
 }
 
 ASkateArena::ASkateArena()
@@ -148,35 +152,40 @@ void ASkateArena::BeginPlay()
 	BuildMaterials();
 	BuildRink();
 	BuildMarkings();
-	BuildGoal();
+	if (Layout.bTrainingCourse)
+	{
+		BuildTrainingCourse();
+	}
+	BuildGoal(1.f);
+	BuildGoal(-1.f);
 	if (bSpawnLightingIfMissing)
 	{
 		BuildLighting();
 	}
 	SpawnBall();
-	SpawnGoalkeeper();
-	SpawnTeammate();
-	// The skater may have been spawned before the rink moved: put everyone on the ice.
-	ResetScene();
+	SpawnGoalkeepers();
+	SpawnTeams();
+	// The player's skater may have been spawned before the rink moved: put everyone on the ice.
+	RestartMatch();
 }
 
-FTransform ASkateArena::GetSpawnTransform(int32 TeamSlot) const
+FTransform ASkateArena::GetSpawnTransform(int32 Team, int32 Slot) const
 {
-	if (TeamSlot == 1)
-	{
-		const FVector Local(Layout.TeammateSpawn.X, Layout.TeammateSpawn.Y, 94.f);
-		return FTransform(FRotator(0.f, Layout.TeammateSpawnYaw, 0.f), GetActorTransform().TransformPosition(Local));
-	}
-	return GetPlayerSpawnTransform();
+	// Team 0 lines up at -X facing +X, team 1 mirrored. Capsule half height 92 + 2 cm clearance above the ice.
+	const float Sign = Team == 0 ? -1.f : 1.f;
+	const FVector2D Spot = Slot == 0 ? Layout.CentreSpawn : Layout.WingSpawn;
+	const FVector Local(Sign * Spot.X, Sign * Spot.Y, 94.f);
+	return FTransform(FRotator(0.f, Team == 0 ? 0.f : 180.f, 0.f), GetActorTransform().TransformPosition(Local));
 }
 
-FSkateGoalFrame ASkateArena::GetGoalFrame() const
+FSkateGoalFrame ASkateArena::GetGoalFrame(int32 GoalIndex) const
 {
 	using namespace SkateArenaDetail;
 	const FTransform& Xf = GetActorTransform();
-	const float LineX = Layout.RinkSize.X * 0.5f - Layout.GoalDepth;
-	const FVector Center = Xf.TransformPosition(FVector(LineX, Layout.GoalCenterY, 0.f));
-	const FVector Normal = Xf.TransformVectorNoScale(FVector(-1.f, 0.f, 0.f)).GetSafeNormal2D();
+	const float Sign = GoalIndex == 0 ? 1.f : -1.f;
+	const float LineX = Sign * (Layout.RinkSize.X * 0.5f - Layout.GoalLineInset);
+	const FVector Center = Xf.TransformPosition(FVector(LineX, 0.f, 0.f));
+	const FVector Normal = Xf.TransformVectorNoScale(FVector(-Sign, 0.f, 0.f)).GetSafeNormal2D();
 	FSkateGoalFrame Frame;
 	Frame.Center = FSkateVec2(static_cast<float>(Center.X), static_cast<float>(Center.Y));
 	Frame.Normal = FSkateVec2(static_cast<float>(Normal.X), static_cast<float>(Normal.Y));
@@ -186,52 +195,62 @@ FSkateGoalFrame ASkateArena::GetGoalFrame() const
 	return Frame;
 }
 
-void ASkateArena::SpawnTeammate()
+void ASkateArena::SpawnTeams()
 {
 	UWorld* World = GetWorld();
-	if (!World || !Layout.bSpawnTeammate)
+	if (!World || !Layout.bSpawnTeams)
 	{
 		return;
 	}
-	for (TActorIterator<ASkateCharacter> It(World); It; ++It)
+	// Team 0 slot 0 is the player's pawn (game mode); everyone else is spawned here unless placed in the level.
+	const int32 Wanted[][2] = { { 0, 1 }, { 1, 0 }, { 1, 1 } };
+	for (const int32* Who : Wanted)
 	{
-		if (It->GetTeamSlot() == 1)
+		bool bExists = false;
+		for (TActorIterator<ASkateCharacter> It(World); It; ++It)
 		{
-			return; // already there (placed in the level)
+			bExists |= It->GetTeam() == Who[0] && It->GetTeamSlot() == Who[1];
+		}
+		if (bExists)
+		{
+			continue;
+		}
+		const FTransform Spawn = GetSpawnTransform(Who[0], Who[1]);
+		ASkateCharacter* Skater = World->SpawnActorDeferred<ASkateCharacter>(ASkateCharacter::StaticClass(), Spawn, nullptr, nullptr,
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (Skater)
+		{
+			Skater->SetTeam(Who[0]);
+			Skater->SetTeamSlot(Who[1]);
+			Skater->FinishSpawning(Spawn);
 		}
 	}
-	const FTransform Spawn = GetSpawnTransform(1);
-	ASkateCharacter* Mate = World->SpawnActorDeferred<ASkateCharacter>(ASkateCharacter::StaticClass(), Spawn, nullptr, nullptr,
-		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	if (Mate)
-	{
-		Mate->SetTeamSlot(1);
-		Mate->FinishSpawning(Spawn);
-	}
 }
 
-void ASkateArena::SpawnGoalkeeper()
+void ASkateArena::SpawnGoalkeepers()
 {
 	UWorld* World = GetWorld();
-	if (!World || !Layout.bSpawnGoalkeeper || Goalkeeper)
+	if (!World || !Layout.bSpawnGoalkeepers)
 	{
 		return;
 	}
-	const FTransform Spawn(GetActorLocation());
-	Goalkeeper = World->SpawnActorDeferred<ASkateGoalkeeper>(ASkateGoalkeeper::StaticClass(), Spawn, this, nullptr,
-		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	if (Goalkeeper)
+	for (int32 GoalIndex = 0; GoalIndex < 2; ++GoalIndex)
 	{
-		Goalkeeper->SetArena(this);
-		Goalkeeper->FinishSpawning(Spawn);
+		TObjectPtr<ASkateGoalkeeper>& Slot = GoalIndex == 0 ? Goalkeeper0 : Goalkeeper1;
+		if (Slot)
+		{
+			continue;
+		}
+		const FTransform Spawn(GetActorLocation());
+		Slot = World->SpawnActorDeferred<ASkateGoalkeeper>(ASkateGoalkeeper::StaticClass(), Spawn, this, nullptr,
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (Slot)
+		{
+			// Goal 0 (+X) is attacked by team 0, so its keeper plays for team 1.
+			Slot->SetGoal(this, GoalIndex, GoalIndex == 0 ? 1 : 0);
+			Slot->FinishSpawning(Spawn);
+		}
 	}
-}
-
-FTransform ASkateArena::GetPlayerSpawnTransform() const
-{
-	// Capsule half height 92 + 2 cm clearance above the ice (z = 0 in arena space).
-	const FVector Local(Layout.PlayerSpawn.X, Layout.PlayerSpawn.Y, 94.f);
-	return FTransform(FRotator(0.f, Layout.PlayerSpawnYaw, 0.f), GetActorTransform().TransformPosition(Local));
 }
 
 FVector ASkateArena::GetBallSpawnLocation() const
@@ -252,18 +271,33 @@ void ASkateArena::ResetScene()
 	{
 		for (TActorIterator<ASkateCharacter> It(World); It; ++It)
 		{
-			It->ResetSkater(GetSpawnTransform(It->GetTeamSlot()));
+			It->ResetSkater(GetSpawnTransform(It->GetTeam(), It->GetTeamSlot()));
 		}
 	}
 	if (Ball)
 	{
 		Ball->ResetBall(GetBallSpawnLocation());
 	}
-	if (Goalkeeper)
+	for (ASkateGoalkeeper* Keeper : { Goalkeeper0.Get(), Goalkeeper1.Get() })
 	{
-		Goalkeeper->ResetKeeper();
+		if (Keeper)
+		{
+			Keeper->ResetKeeper();
+		}
 	}
 	bBallInGoal = false;
+	GoalPauseLeft = -1.f;
+}
+
+void ASkateArena::RestartMatch()
+{
+	Score0 = 0;
+	Score1 = 0;
+	LastGoalTeam = INDEX_NONE;
+	LastGoalTime = -1000.0;
+	Clock = Layout.MatchLength;
+	bMatchOver = false;
+	ResetScene();
 }
 
 void ASkateArena::PlaceBallInFront(ASkateCharacter* Skater)
@@ -272,9 +306,12 @@ void ASkateArena::PlaceBallInFront(ASkateCharacter* Skater)
 	{
 		return;
 	}
-	if (Goalkeeper && Goalkeeper->GetKeeperState().bHolding)
+	for (ASkateGoalkeeper* Keeper : { Goalkeeper0.Get(), Goalkeeper1.Get() })
 	{
-		Goalkeeper->ResetKeeper(); // the keeper lets go of the ball
+		if (Keeper && Keeper->GetKeeperState().bHolding)
+		{
+			Keeper->ResetKeeper(); // the keeper lets go of the ball
+		}
 	}
 	const FVector Forward = Skater->GetActorForwardVector().GetSafeNormal2D();
 	FVector Location = Skater->GetActorLocation() + Forward * 70.f;
@@ -405,8 +442,8 @@ void ASkateArena::AddLabel(const FVector2D& Location, const FString& Text, const
 	Label->SetWorldSize(Size);
 	Label->SetHorizontalAlignment(EHTA_Center);
 	Label->SetVerticalAlignment(EVRTA_TextBottom);
-	// Laid back to face the default top-down camera (looking along +X, pitched down).
-	Label->SetRelativeLocationAndRotation(FVector(Location.X, Location.Y, 2.f), FRotator(56.f, 180.f, 0.f));
+	// Laid back to face the side camera (on the +Y stands, pitched down).
+	Label->SetRelativeLocationAndRotation(FVector(Location.X, Location.Y, 2.f), FRotator(40.f, 90.f, 0.f));
 	Label->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Label->SetCastShadow(false);
 }
@@ -416,11 +453,33 @@ void ASkateArena::BuildMarkings()
 	using namespace SkateArenaDetail;
 	const float L = Layout.RinkSize.X;
 	const float W = Layout.RinkSize.Y;
+	const float LineX = L * 0.5f - Layout.GoalLineInset;
 
-	// Centre red line and two blue lines (orientation cues only).
+	// Centre line, blue lines, goal lines across the full width.
 	AddMarkLine(FVector2D(0.f, -W * 0.5f), FVector2D(0.f, W * 0.5f), 30.f, RedLine);
-	AddMarkLine(FVector2D(-L * 0.25f, -W * 0.5f), FVector2D(-L * 0.25f, W * 0.5f), 25.f, BlueLine);
-	AddMarkLine(FVector2D(L * 0.25f, -W * 0.5f), FVector2D(L * 0.25f, W * 0.5f), 25.f, BlueLine);
+	AddMarkLine(FVector2D(-Layout.BlueLineX, -W * 0.5f), FVector2D(-Layout.BlueLineX, W * 0.5f), 30.f, BlueLine);
+	AddMarkLine(FVector2D(Layout.BlueLineX, -W * 0.5f), FVector2D(Layout.BlueLineX, W * 0.5f), 30.f, BlueLine);
+	AddMarkLine(FVector2D(-LineX, -W * 0.5f), FVector2D(-LineX, W * 0.5f), 5.f, RedLine);
+	AddMarkLine(FVector2D(LineX, -W * 0.5f), FVector2D(LineX, W * 0.5f), 5.f, RedLine);
+
+	// Centre circle and dot, four end-zone face-off circles.
+	AddMarkRing(FVector2D::ZeroVector, FaceOffRadius, 5.f, BlueLine, 64);
+	AddMarkRing(FVector2D::ZeroVector, 15.f, 30.f, BlueLine, 12);
+	const float CircleX = LineX - 600.f;
+	const float CircleY = W * 0.5f - 800.f;
+	for (const float Sx : { -1.f, 1.f })
+	{
+		for (const float Sy : { -1.f, 1.f })
+		{
+			AddMarkRing(FVector2D(Sx * CircleX, Sy * CircleY), FaceOffRadius, 5.f, RedLine, 64);
+			AddMarkRing(FVector2D(Sx * CircleX, Sy * CircleY), 15.f, 30.f, RedLine, 12);
+		}
+	}
+}
+
+void ASkateArena::BuildTrainingCourse()
+{
+	using namespace SkateArenaDetail;
 
 	// Acceleration straight: start line, lane edges, stop zone. Stop zone sized for the braking distance (~1.6 m).
 	const float LaneHalf = 150.f;
@@ -451,20 +510,18 @@ void ASkateArena::BuildMarkings()
 	AddMarkRing(Layout.FigureEightCenter - Offset, Layout.FigureEightRadius, 12.f, BlueLine, 56);
 	AddMarkRing(Layout.FigureEightCenter + Offset, Layout.FigureEightRadius, 12.f, BlueLine, 56);
 	AddLabel(Layout.FigureEightCenter - FVector2D(Layout.FigureEightRadius + 120.f, 0.f), TEXT("FIGURE 8"), FColor(20, 40, 140));
-
-	// Ball spot and dribble hint.
-	AddMarkRing(Layout.BallSpawn, 30.f, 6.f, RedLine, 16);
-	AddLabel(Layout.BallSpawn - FVector2D(180.f, 0.f), TEXT("BALL  >  GOAL"), FColor(30, 30, 30), 55.f);
 }
 
-void ASkateArena::BuildGoal()
+void ASkateArena::BuildGoal(float Sign)
 {
 	using namespace SkateArenaDetail;
-	const float LineX = Layout.RinkSize.X * 0.5f - Layout.GoalDepth;
-	const float BackX = Layout.RinkSize.X * 0.5f - NetThickness * 0.5f;
-	const float Y0 = Layout.GoalCenterY - Layout.GoalWidth * 0.5f;
-	const float Y1 = Layout.GoalCenterY + Layout.GoalWidth * 0.5f;
+	// Local X grows into the net (away from the rink); mirrored by Sign for the -X goal.
+	const float LineX = Layout.RinkSize.X * 0.5f - Layout.GoalLineInset;
+	const float BackX = LineX + Layout.GoalDepth;
+	const float Y0 = -Layout.GoalWidth * 0.5f;
+	const float Y1 = Layout.GoalWidth * 0.5f;
 	const float H = Layout.GoalHeight;
+	auto X = [Sign](float LocalX) { return Sign * LocalX; };
 
 	auto AddPost = [&](const FVector& A, const FVector& B)
 	{
@@ -473,21 +530,22 @@ void ASkateArena::BuildGoal()
 		Post->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 		Post->SetPhysMaterialOverride(BoardMaterial);
 	};
-	AddPost(FVector(LineX, Y0, 0.f), FVector(LineX, Y0, H));
-	AddPost(FVector(LineX, Y1, 0.f), FVector(LineX, Y1, H));
-	AddPost(FVector(LineX, Y0 - PostRadius, H), FVector(LineX, Y1 + PostRadius, H));
+	AddPost(FVector(X(LineX), Y0, 0.f), FVector(X(LineX), Y0, H));
+	AddPost(FVector(X(LineX), Y1, 0.f), FVector(X(LineX), Y1, H));
+	AddPost(FVector(X(LineX), Y0 - PostRadius, H), FVector(X(LineX), Y1 + PostRadius, H));
 
 	// Net: back, sides, roof. Absorbing material.
 	const float Depth = Layout.GoalDepth;
-	AddBox(FVector(BackX, Layout.GoalCenterY, H * 0.5f), FVector(NetThickness, Layout.GoalWidth, H), NetColor, NetMaterial);
-	AddBox(FVector(LineX + Depth * 0.5f, Y0 - NetThickness, H * 0.5f), FVector(Depth, NetThickness, H), NetColor, NetMaterial);
-	AddBox(FVector(LineX + Depth * 0.5f, Y1 + NetThickness, H * 0.5f), FVector(Depth, NetThickness, H), NetColor, NetMaterial);
-	AddBox(FVector(LineX + Depth * 0.5f, Layout.GoalCenterY, H + NetThickness), FVector(Depth, Layout.GoalWidth, NetThickness), NetColor, NetMaterial);
+	AddBox(FVector(X(BackX - NetThickness * 0.5f), 0.f, H * 0.5f), FVector(NetThickness, Layout.GoalWidth, H), NetColor, NetMaterial);
+	AddBox(FVector(X(LineX + Depth * 0.5f), Y0 - NetThickness, H * 0.5f), FVector(Depth, NetThickness, H), NetColor, NetMaterial);
+	AddBox(FVector(X(LineX + Depth * 0.5f), Y1 + NetThickness, H * 0.5f), FVector(Depth, NetThickness, H), NetColor, NetMaterial);
+	AddBox(FVector(X(LineX + Depth * 0.5f), 0.f, H + NetThickness), FVector(Depth, Layout.GoalWidth, NetThickness), NetColor, NetMaterial);
 
-	// Goal line and crease.
-	AddMarkLine(FVector2D(LineX, Y0), FVector2D(LineX, Y1), 10.f, RedLine);
-	AddMarkRect(FVector2D(LineX - 90.f, Layout.GoalCenterY), FVector2D(180.f, Layout.GoalWidth), FLinearColor(0.35f, 0.55f, 0.85f));
-	AddLabel(FVector2D(LineX - 260.f, Layout.GoalCenterY), TEXT("GOAL"), FColor(140, 20, 20), 80.f);
+	// Crease in front, trapezoid behind (goal line to the end boards).
+	AddMarkRect(FVector2D(X(LineX - 90.f), 0.f), FVector2D(180.f, Layout.GoalWidth), FLinearColor(0.35f, 0.55f, 0.85f));
+	const float BoardX = Layout.RinkSize.X * 0.5f;
+	AddMarkLine(FVector2D(X(LineX), -TrapezoidNearHalf), FVector2D(X(BoardX), -TrapezoidFarHalf), 5.f, RedLine);
+	AddMarkLine(FVector2D(X(LineX), TrapezoidNearHalf), FVector2D(X(BoardX), TrapezoidFarHalf), 5.f, RedLine);
 }
 
 void ASkateArena::BuildLighting()
@@ -559,17 +617,56 @@ void ASkateArena::Tick(float DeltaSeconds)
 	{
 		return;
 	}
-	// Goal: ball centre fully behind the goal line, between the posts, under the bar.
-	const FVector Local = GetActorTransform().InverseTransformPosition(Ball->GetActorLocation());
-	const float LineX = Layout.RinkSize.X * 0.5f - Layout.GoalDepth;
-	const bool bInside = Local.X > LineX + Ball->GetRadius()
-		&& FMath::Abs(Local.Y - Layout.GoalCenterY) < Layout.GoalWidth * 0.5f
-		&& Local.Z < Layout.GoalHeight;
-	if (bInside && !bBallInGoal)
+
+	// Match clock and the pause after a goal.
+	if (GoalPauseLeft >= 0.f)
 	{
-		++Goals;
-		LastGoalTime = GetWorld()->GetTimeSeconds();
-		UE_LOG(LogIceSkate, Log, TEXT("GOAL #%d"), Goals);
+		GoalPauseLeft -= DeltaSeconds;
+		if (GoalPauseLeft < 0.f)
+		{
+			ResetScene();
+		}
+		return;
 	}
-	bBallInGoal = bInside;
+	if (!bMatchOver)
+	{
+		Clock = FMath::Max(0.f, Clock - DeltaSeconds);
+		if (Clock <= 0.f)
+		{
+			bMatchOver = true;
+			UE_LOG(LogIceSkate, Log, TEXT("FULL TIME %d:%d"), Score0, Score1);
+		}
+	}
+
+	// Goal: ball centre fully behind the goal line, between the posts, under the bar.
+	const int32 InGoal = BallInGoal();
+	if (InGoal != INDEX_NONE && !bBallInGoal && !bMatchOver)
+	{
+		// Goal 0 (+X) is team 0's target.
+		LastGoalTeam = InGoal == 0 ? 0 : 1;
+		(LastGoalTeam == 0 ? Score0 : Score1)++;
+		LastGoalTime = GetWorld()->GetTimeSeconds();
+		GoalPauseLeft = Layout.GoalPause;
+		UE_LOG(LogIceSkate, Log, TEXT("GOAL team %d: %d:%d"), LastGoalTeam, Score0, Score1);
+	}
+	bBallInGoal = InGoal != INDEX_NONE;
+}
+
+int32 ASkateArena::BallInGoal() const
+{
+	const FVector Local = GetActorTransform().InverseTransformPosition(Ball->GetActorLocation());
+	const float LineX = Layout.RinkSize.X * 0.5f - Layout.GoalLineInset;
+	if (FMath::Abs(Local.Y) >= Layout.GoalWidth * 0.5f || Local.Z >= Layout.GoalHeight)
+	{
+		return INDEX_NONE;
+	}
+	if (Local.X > LineX + Ball->GetRadius())
+	{
+		return 0;
+	}
+	if (Local.X < -LineX - Ball->GetRadius())
+	{
+		return 1;
+	}
+	return INDEX_NONE;
 }

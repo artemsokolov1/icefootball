@@ -1,5 +1,7 @@
 #include "Skate/SkateBallControlComponent.h"
 
+#include "IceFootball.h"
+
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -182,6 +184,14 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		const float PlanarDist = (Query.BallPos.XY() - Query.SkaterPos).Size();
 		Query.bLineOfSightClear = PlanarDist > TraceRange || HasLineOfSight(*Skater, *B);
 		Query.bBallHeldByOther = B->IsHeldByOther(this);
+		if (Query.bBallHeldByOther)
+		{
+			// An opponent's ball may be taken off its feet once the protection time has passed.
+			const USkateBallControlComponent* Other = Cast<USkateBallControlComponent>(B->GetHolder());
+			const ASkateCharacter* Carrier = Other ? Cast<ASkateCharacter>(Other->GetOwner()) : nullptr;
+			Query.bStealAllowed = Carrier && Carrier->GetTeam() != Skater->GetTeam()
+				&& Other->GetControlState().Possession.TimeHeld >= ControlTuning.Possession.StealProtectTime;
+		}
 		Query.BallTimeSinceImpulse = B->GetTimeSinceGameplayImpulse();
 		Query.bIncomingPass = B->IsPassFor(this);
 		if (PlanarDist <= TraceRange)
@@ -194,15 +204,28 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	PendingActions = FSkateBallActionInput();
 
 	const int32 TapsBefore = ControlState.Possession.TouchPulseCount;
+	const int32 AcquiresBefore = ControlState.Possession.AcquireCount;
+	const bool bPossessedBefore = ControlState.Possession.bPossessed;
 	FSkateBallCarry Carry;
 	const FSkateBallImpulse Impulse = FSkateBallControl::Update(ControlTuning, Query, Actions, DeltaTime, ControlState, Report, &Carry);
+
+	if (bPossessedBefore != ControlState.Possession.bPossessed)
+	{
+		UE_LOG(LogIceSkate, Verbose, TEXT("Team %d slot %d: %s (loss %s, carry error %.0f cm, speed %.0f, rel %.0f, ball h %.0f)"),
+			Skater->GetTeam(), Skater->GetTeamSlot(), ControlState.Possession.bPossessed ? TEXT("TRAP") : TEXT("LOST"),
+			ANSI_TO_TCHAR(SkatePossessionLossName(ControlState.Possession.LastLoss)), ControlState.Possession.CarryError,
+			static_cast<float>(Move->Velocity.Size2D()), Report.RelativeSpeed, Report.BallHeight);
+	}
 
 	// Possession: a carried ball gets its velocity steered (no damping / rolling resistance while carried);
 	// any release hands it back to plain physics before an impulse is applied.
 	if (B)
 	{
 		// Only the skater that has the ball touches its carried state: the teammate leaves it alone.
-		const bool bCarryingNow = ControlState.Possession.bPossessed && !Impulse.IsValid();
+		// A steal claims the ball on the frame it is trapped. The robbed skater sees the holder change and
+		// does not reclaim it: next frame its query reports the ball as held by another -> loss "Taken".
+		const bool bJustTrapped = ControlState.Possession.AcquireCount != AcquiresBefore;
+		const bool bCarryingNow = ControlState.Possession.bPossessed && !Impulse.IsValid() && (bJustTrapped || !B->IsHeldByOther(this));
 		if (bCarryingNow)
 		{
 			B->SetHolder(this);
@@ -233,6 +256,11 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	if (Impulse.IsValid() && B)
 	{
+		if (Impulse.Kind == ESkateImpulseKind::Kick || Impulse.Kind == ESkateImpulseKind::Push)
+		{
+			UE_LOG(LogIceSkate, Verbose, TEXT("Team %d slot %d: %s power %.2f -> %.0f cm/s at (%.0f, %.0f)"), Skater->GetTeam(), Skater->GetTeamSlot(),
+				ANSI_TO_TCHAR(SkateImpulseKindName(Impulse.Kind)), Impulse.Power, Impulse.NewBallVelocity.Size(), SkaterLoc.X, SkaterLoc.Y);
+		}
 		B->ApplyGameplayVelocity(ToVector(Impulse.NewBallVelocity), Impulse.Kind, this);
 		LastImpulse = Impulse;
 		if (Impulse.Kind != ESkateImpulseKind::BodyBlock)

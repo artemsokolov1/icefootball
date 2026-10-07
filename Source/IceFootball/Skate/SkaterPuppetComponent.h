@@ -29,6 +29,8 @@ public:
 	void SetAnimTuning(const FSkateAnimTuning& InTuning) { Tuning = InTuning; }
 	/** Chest patch colour (set before BeginPlay). */
 	void SetMarkColor(const FLinearColor& InColor) { MarkColor = InColor; }
+	/** Jersey colours (set before BeginPlay): one per team. */
+	void SetJerseyColor(const FLinearColor& Main, const FLinearColor& Dark) { JerseyColor = Main; JerseyDarkColor = Dark; }
 	void ResetPose();
 
 	/** Blade contact point on the ice (Side 0 = left, 1 = right), world space, X axis along the blade. */
@@ -50,6 +52,8 @@ private:
 	FString PoseLabel = TEXT("Stance");
 	bool bBuilt = false;
 	FLinearColor MarkColor = FLinearColor(0.95f, 0.95f, 0.95f);
+	FLinearColor JerseyColor = FLinearColor(0.85f, 0.18f, 0.08f);
+	FLinearColor JerseyDarkColor = FLinearColor(0.62f, 0.12f, 0.05f);
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UStaticMeshComponent>> Parts;

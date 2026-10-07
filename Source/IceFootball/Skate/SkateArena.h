@@ -1,9 +1,10 @@
-// Ice skating prototype - the test rink, built at runtime from engine basic shapes.
+// Ice skating prototype - the hockey rink and the match, built at runtime from engine basic shapes.
 //
-// Contents: ice sheet, boards, painted markings (acceleration straight, stop zone, turning
-// circle, slalom cones, figure eight), a target goal, the ball, optional lighting.
-// The arena owns spawn points and the scene reset. Spawned by ASkateGameMode if the level
-// has none, or place it in a level manually.
+// Contents: ice sheet, boards, hockey markings (centre / blue / goal lines, face-off circles, the
+// trapezoid behind each net), two goals set in from the end boards, the ball, two AI keepers, the
+// skaters of both teams, optional lighting. The arena owns the spawn points, the face-off reset and
+// the match (score, clock). Team 0 (the player's, red) attacks the +X goal, team 1 (AI, blue) the -X
+// goal. Spawned by ASkateGameMode if the level has none, or place it in a level manually.
 #pragma once
 
 #include "CoreMinimal.h"
@@ -17,15 +18,15 @@ class ASkateGoalkeeper;
 class UPhysicalMaterial;
 class UStaticMeshComponent;
 
-/** Rink layout (cm). Sized for ~580 cm/s skating: 50 x 32 m, stop distance ~1.6 m, glide ~10 m. */
+/** Rink layout (cm). Hockey-sized: 60 x 30 m. */
 USTRUCT(BlueprintType)
 struct FSkateArenaLayout
 {
 	GENERATED_BODY()
 
-	/** Inner rink size: X = length (screen up with the default camera), Y = width. */
+	/** Inner rink size: X = length (the goals are at +-X), Y = width. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	FVector2D RinkSize = FVector2D(5000.f, 3200.f);
+	FVector2D RinkSize = FVector2D(6000.f, 3000.f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float BoardHeight = 110.f;
@@ -33,72 +34,28 @@ struct FSkateArenaLayout
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float BoardThickness = 30.f;
 
+	/** Face-off: slot 0 of each team stands this far from the centre (X mirrored per team, team 0 at -X). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	FVector2D PlayerSpawn = FVector2D(-2150.f, -1100.f);
+	FVector2D CentreSpawn = FVector2D(150.f, 0.f);
+
+	/** Slot 1 of each team: X back from the centre, Y to the side (both mirrored per team). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	FVector2D WingSpawn = FVector2D(900.f, 800.f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float PlayerSpawnYaw = 0.f;
+	FVector2D BallSpawn = FVector2D(0.f, 0.f);
 
+	/** Spawns the teammate and the two opponents (the player's own skater comes from the game mode). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	FVector2D BallSpawn = FVector2D(600.f, 600.f);
+	bool bSpawnTeams = true;
 
-	/** Second skater (also player-controlled, switch with LB / Q): spawn point and facing. */
+	/** AI goalkeeper in each goal. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	bool bSpawnTeammate = true;
+	bool bSpawnGoalkeepers = true;
 
+	/** Goal line this far (cm) in front of the end boards: room to skate behind the net, as in hockey. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	FVector2D TeammateSpawn = FVector2D(-200.f, 1150.f);
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float TeammateSpawnYaw = 0.f;
-
-	/** AI goalkeeper in the goal. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	bool bSpawnGoalkeeper = true;
-
-	/** Acceleration straight along +X at this Y, from AccelStartX to the stop zone. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float AccelLaneY = -1100.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float AccelStartX = -2000.f;
-
-	/** Stop zone (box) centre X along the acceleration lane and its length. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float StopZoneCenterX = 100.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float StopZoneLength = 700.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	FVector2D TurnCircleCenter = FVector2D(-1250.f, 900.f);
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float TurnCircleRadius = 450.f;
-
-	/** Slalom: cones along +X at this Y. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float SlalomY = -250.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float SlalomStartX = -2000.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float SlalomSpacing = 400.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	int32 SlalomCones = 7;
-
-	/** Figure eight: two circles touching at this centre, laid out along X. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	FVector2D FigureEightCenter = FVector2D(1300.f, -900.f);
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float FigureEightRadius = 400.f;
-
-	/** Target goal on the +X board: mouth centre Y, width, height, depth. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
-	float GoalCenterY = 600.f;
+	float GoalLineInset = 400.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float GoalWidth = 520.f;
@@ -108,6 +65,57 @@ struct FSkateArenaLayout
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float GoalDepth = 120.f;
+
+	/** Blue lines this far (cm) from the centre line. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	float BlueLineX = 800.f;
+
+	/** Match length (s) and the pause after a goal before the face-off. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
+	float MatchLength = 180.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
+	float GoalPause = 2.5f;
+
+	/** Also paints the skating test course (acceleration lane, stop zone, slalom cones, figure eight). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	bool bTrainingCourse = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float AccelLaneY = -1100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float AccelStartX = -2000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float StopZoneCenterX = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float StopZoneLength = 700.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	FVector2D TurnCircleCenter = FVector2D(-1250.f, 900.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float TurnCircleRadius = 450.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float SlalomY = -250.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float SlalomStartX = -2000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float SlalomSpacing = 400.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	int32 SlalomCones = 7;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	FVector2D FigureEightCenter = FVector2D(1300.f, -900.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
+	float FigureEightRadius = 400.f;
 };
 
 UCLASS()
@@ -123,22 +131,25 @@ public:
 
 	static ASkateArena* Find(const UWorld* World);
 
-	/** Component tag of the four boards (the carried ball is kept off them; cones / goal are obstacles). */
+	/** Component tag of the four boards (the carried ball is kept off them; posts are obstacles). */
 	static FName BoardTag() { return FName(TEXT("SkateBoard")); }
 
-	FTransform GetPlayerSpawnTransform() const;
-	/** Spawn point of team slot 0 (player) or 1 (teammate). */
-	FTransform GetSpawnTransform(int32 TeamSlot) const;
-	/** The goal mouth in world space (for the keeper). */
-	FSkateGoalFrame GetGoalFrame() const;
-	ASkateGoalkeeper* GetGoalkeeper() const { return Goalkeeper; }
+	/** Team 0 slot 0: the player's own skater. */
+	FTransform GetPlayerSpawnTransform() const { return GetSpawnTransform(0, 0); }
+	/** Face-off spot of a skater: team 0 / 1, slot 0 (centre) / 1 (wing). */
+	FTransform GetSpawnTransform(int32 Team, int32 Slot) const;
+	/** The goal mouth in world space. Goal 0 is at +X (attacked by team 0), goal 1 at -X. */
+	FSkateGoalFrame GetGoalFrame(int32 GoalIndex = 0) const;
+	ASkateGoalkeeper* GetGoalkeeper(int32 GoalIndex = 0) const { return GoalIndex == 0 ? Goalkeeper0 : Goalkeeper1; }
 	FVector GetBallSpawnLocation() const;
 	FVector GetRinkCenter() const { return GetActorLocation(); }
 	const FSkateArenaLayout& GetLayout() const { return Layout; }
 	ASkateBall* GetBall() const { return Ball; }
 
-	/** Puts both skaters, the keeper and the ball back to their start points, all stopped. */
+	/** Face-off: every skater, both keepers and the ball back to their start points, all stopped. */
 	void ResetScene();
+	/** Score 0:0, full clock, face-off. */
+	void RestartMatch();
 
 	/** Test helper: places a resting ball just in front of the skater's feet. */
 	void PlaceBallInFront(ASkateCharacter* Skater);
@@ -147,11 +158,19 @@ public:
 	bool IsInsideRink(const FVector& WorldLocation, float Margin = 5.f) const;
 
 	/** Lifts the rink so the ice sits on top of whatever ground the level already has (e.g. a landscape).
-	 *  Returns true if the rink moved. Skater and ball are reset to the new start points. */
+	 *  Returns true if the rink moved. Skaters and ball are reset to the new start points. */
 	bool SettleOnGround();
 
-	int32 GetGoals() const { return Goals; }
+	// ---- Match ----
+	int32 GetScore(int32 Team) const { return Team == 0 ? Score0 : Score1; }
+	int32 GetGoals() const { return Score0 + Score1; }
 	double GetLastGoalTime() const { return LastGoalTime; }
+	int32 GetLastGoalTeam() const { return LastGoalTeam; }
+	/** Seconds left on the clock. */
+	float GetClock() const { return Clock; }
+	bool IsMatchOver() const { return bMatchOver; }
+	/** The pause after a goal: the AI skaters stand still until the face-off. */
+	bool IsGoalPause() const { return GoalPauseLeft >= 0.f; }
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
@@ -171,7 +190,10 @@ protected:
 	TObjectPtr<ASkateBall> Ball;
 
 	UPROPERTY(Transient)
-	TObjectPtr<ASkateGoalkeeper> Goalkeeper;
+	TObjectPtr<ASkateGoalkeeper> Goalkeeper0;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ASkateGoalkeeper> Goalkeeper1;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UPhysicalMaterial> IceMaterial;
@@ -189,11 +211,14 @@ private:
 	void BuildMaterials();
 	void BuildRink();
 	void BuildMarkings();
-	void BuildGoal();
+	void BuildTrainingCourse();
+	void BuildGoal(float Sign);
 	void BuildLighting();
 	void SpawnBall();
-	void SpawnTeammate();
-	void SpawnGoalkeeper();
+	void SpawnTeams();
+	void SpawnGoalkeepers();
+	/** The goal (0 / 1) the ball is in, or INDEX_NONE. */
+	int32 BallInGoal() const;
 
 	UStaticMeshComponent* AddBox(const FVector& Center, const FVector& Size, const FLinearColor& Color, UPhysicalMaterial* PhysMat, float Yaw = 0.f);
 	UStaticMeshComponent* AddMarkLine(const FVector2D& A, const FVector2D& B, float Width, const FLinearColor& Color);
@@ -204,8 +229,14 @@ private:
 
 	bool FindGroundTop(float& OutTopZ) const;
 
-	int32 Goals = 0;
+	int32 Score0 = 0;
+	int32 Score1 = 0;
+	int32 LastGoalTeam = INDEX_NONE;
 	double LastGoalTime = -1000.0;
+	float Clock = 0.f;
+	/** Seconds left before the face-off after a goal (< 0: play on). */
+	float GoalPauseLeft = -1.f;
+	bool bMatchOver = false;
 	bool bBallInGoal = false;
 	float SettleTimer = 0.f;
 	float SettleCheckAccumulator = 0.f;

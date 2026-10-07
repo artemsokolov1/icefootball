@@ -12,6 +12,15 @@
 #include "SkateMath.h"
 #include "SkateModel.h"
 
+/** Shared steering primitives for the AI skaters (teammate and opponents). */
+namespace SkateSteer
+{
+	/** Stop and turn the skates towards Target. */
+	FSkateMoveInput Face(const FSkateVec2& Pos, const FSkateVec2& Heading, const FSkateVec2& Target);
+	/** Skate to Point and stop there facing LookAt (brakes in time, eases off on arrival). */
+	FSkateMoveInput GoTo(const FSkateVec2& Pos, const FSkateVec2& Vel, const FSkateVec2& Heading, const FSkateVec2& Point, const FSkateVec2& LookAt);
+}
+
 struct FSkateTeammateView
 {
 	FSkateVec2 Pos;

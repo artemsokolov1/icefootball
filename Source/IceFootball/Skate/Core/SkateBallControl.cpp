@@ -234,7 +234,7 @@ bool FSkateBallControl::CanAcquire(const FSkateBallControlTuning& Tuning, const 
 	return PT.bEnabled
 		&& Query.bHasBall
 		&& Query.bInteractionEnabled
-		&& !Query.bBallHeldByOther
+		&& (!Query.bBallHeldByOther || Query.bStealAllowed)
 		&& Report.bInTrapZone
 		&& Report.RelativeSpeed <= MaxRelSpeed
 		&& State.TimeSinceAction >= PT.AcquireCooldownAfterAction

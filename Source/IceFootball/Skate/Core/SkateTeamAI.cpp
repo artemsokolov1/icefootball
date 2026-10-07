@@ -25,41 +25,46 @@ const char* SkateTeammateModeName(ESkateTeammateMode Mode)
 	return "?";
 }
 
-FSkateMoveInput FSkateTeammateAI::Think(const FSkateTeammateView& View, ESkateTeammateMode* OutMode)
+FSkateMoveInput SkateSteer::Face(const FSkateVec2& Pos, const FSkateVec2& Heading, const FSkateVec2& Target)
 {
 	using namespace SkateTeamAIDetail;
 	FSkateMoveInput In;
-	ESkateTeammateMode Mode = ESkateTeammateMode::Wait;
+	In.Brake = 1.f;
+	const FSkateVec2 Dir = (Target - Pos).GetSafeNormal(Heading);
+	if (Heading.Dot(Dir) < FacingDot)
+	{
+		In.Direction = Dir;
+		In.Magnitude = FacingStick;
+	}
+	return In;
+}
 
-	// Stop and turn the skates towards Target.
-	auto Face = [&](const FSkateVec2& Target)
+FSkateMoveInput SkateSteer::GoTo(const FSkateVec2& Pos, const FSkateVec2& Vel, const FSkateVec2& Heading, const FSkateVec2& Point, const FSkateVec2& LookAt)
+{
+	using namespace SkateTeamAIDetail;
+	const FSkateVec2 Delta = Point - Pos;
+	const float Dist = Delta.Size();
+	if (Dist < ArriveRadius)
 	{
-		In.Brake = 1.f;
-		const FSkateVec2 Dir = (Target - View.Pos).GetSafeNormal(View.Heading);
-		if (View.Heading.Dot(Dir) < FacingDot)
-		{
-			In.Direction = Dir;
-			In.Magnitude = FacingStick;
-		}
-	};
-	// Skate to Point and stop there facing LookAt.
-	auto GoTo = [&](const FSkateVec2& Point, const FSkateVec2& LookAt)
+		return Face(Pos, Heading, LookAt);
+	}
+	FSkateMoveInput In;
+	In.Direction = Delta * (1.f / Dist);
+	In.Magnitude = SkateMath::Clamp(Dist / EaseDistance, 0.25f, 1.f);
+	const float Speed = Vel.Size();
+	if (Speed * Speed / (2.f * ExpectedBrakeDecel) > Dist)
 	{
-		const FSkateVec2 Delta = Point - View.Pos;
-		const float Dist = Delta.Size();
-		if (Dist < ArriveRadius)
-		{
-			Face(LookAt);
-			return;
-		}
-		In.Direction = Delta * (1.f / Dist);
-		In.Magnitude = SkateMath::Clamp(Dist / EaseDistance, 0.25f, 1.f);
-		const float Speed = View.Vel.Size();
-		if (Speed * Speed / (2.f * ExpectedBrakeDecel) > Dist)
-		{
-			In.Brake = 1.f; // would overshoot: brake while still steering
-		}
-	};
+		In.Brake = 1.f; // would overshoot: brake while still steering
+	}
+	return In;
+}
+
+FSkateMoveInput FSkateTeammateAI::Think(const FSkateTeammateView& View, ESkateTeammateMode* OutMode)
+{
+	FSkateMoveInput In;
+	ESkateTeammateMode Mode = ESkateTeammateMode::Wait;
+	auto Face = [&](const FSkateVec2& Target) { In = SkateSteer::Face(View.Pos, View.Heading, Target); };
+	auto GoTo = [&](const FSkateVec2& Point, const FSkateVec2& LookAt) { In = SkateSteer::GoTo(View.Pos, View.Vel, View.Heading, Point, LookAt); };
 
 	if (View.bHasBall)
 	{

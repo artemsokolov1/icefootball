@@ -113,12 +113,15 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), 0.f, 0.f, Canvas->ClipX, 44.f);
 	DrawText(Status, Info, 12.f, 4.f, GEngine->GetSmallFont(), TextScale);
 
-	// Team / keeper line.
-	const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper() : nullptr;
+	// Score / clock / team line. Keeper = the opponents' keeper (the one the player shoots at).
+	const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper(0) : nullptr;
 	const int32 TeamSize = Pc ? Pc->GetTeam().Num() : 1;
-	const FString TeamLine = FString::Printf(TEXT("Skater %d of %d%s  |  Goals %d  |  Keeper saves %d"),
+	const int32 ClockSec = Arena ? FMath::CeilToInt(Arena->GetClock()) : 0;
+	const FString TeamLine = FString::Printf(TEXT("YOU %d : %d CPU  |  %d:%02d%s  |  Skater %d of %d%s  |  Saves against you %d"),
+		Arena ? Arena->GetScore(0) : 0, Arena ? Arena->GetScore(1) : 0, ClockSec / 60, ClockSec % 60,
+		Arena && Arena->IsMatchOver() ? TEXT("  FULL TIME") : TEXT(""),
 		Skater->GetTeamSlot() + 1, TeamSize, TeamSize > 1 ? TEXT(" (LB / Q: switch)") : TEXT(""),
-		Arena ? Arena->GetGoals() : 0, Keeper ? Keeper->GetSaves() : 0);
+		Keeper ? Keeper->GetSaves() : 0);
 	DrawText(TeamLine, Info, 12.f, 24.f, GEngine->GetSmallFont(), TextScale);
 
 	// Marker over the controlled skater (filled yellow arrow + number), number only over the teammate.
@@ -166,11 +169,17 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		}
 	}
 
-	// Goal flash.
-	if (Arena && GetWorld()->GetTimeSeconds() - Arena->GetLastGoalTime() < 1.6)
+	// Goal flash / full time.
+	if (Arena && Arena->IsMatchOver())
 	{
-		const FString Text = FString::Printf(TEXT("GOAL!  (%d)"), Arena->GetGoals());
-		DrawText(Text, Good, Canvas->ClipX * 0.5f - 90.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.6f);
+		const FString Text = FString::Printf(TEXT("FULL TIME   YOU %d : %d CPU      Y / R: new match"), Arena->GetScore(0), Arena->GetScore(1));
+		DrawText(Text, Good, Canvas->ClipX * 0.5f - 260.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.5f);
+	}
+	else if (Arena && GetWorld()->GetTimeSeconds() - Arena->GetLastGoalTime() < 2.4)
+	{
+		const FString Text = FString::Printf(TEXT("%s   YOU %d : %d CPU"), Arena->GetLastGoalTeam() == 0 ? TEXT("GOAL!") : TEXT("CPU SCORES"),
+			Arena->GetScore(0), Arena->GetScore(1));
+		DrawText(Text, Arena->GetLastGoalTeam() == 0 ? Good : Note, Canvas->ClipX * 0.5f - 170.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.6f);
 	}
 	else if (Keeper && Keeper->GetTimeSinceAction() < 1.2f
 		&& (Keeper->GetLastAction() == ESkateKeeperAction::Parry || Keeper->GetLastAction() == ESkateKeeperAction::Catch))

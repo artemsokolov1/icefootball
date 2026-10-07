@@ -3,6 +3,7 @@
 #include "../Core/SkateBallControl.h"
 #include "../Core/SkateKeeper.h"
 #include "../Core/SkateModel.h"
+#include "../Core/SkateOpponentAI.h"
 #include "../Core/SkateTeamAI.h"
 #include "../Core/SkateTuningPresets.h"
 
@@ -35,6 +36,10 @@ namespace SkateTeamTestsDetail
 		FSkateContactReport Report;
 		bool bAI = false;
 		ESkateTeammateMode Mode = ESkateTeammateMode::Wait;
+		/** Driven by the opposing-team AI (attacks Goal); needs Team[] to differ from the other skater. */
+		bool bOpponent = false;
+		FSkateOpponentBrain Brain;
+		ESkateOpponentMode OppMode = ESkateOpponentMode::Wait;
 		int Impulses = 0;
 		int BodyBlocks = 0;
 	};
@@ -67,6 +72,7 @@ namespace SkateTeamTestsDetail
 		int LastSource = -1;
 		int DoubleImpulses = 0;
 		int Controlled = 0;
+		int Team[2] = { 0, 0 };
 
 		bool bKeeper = false;
 		FSkateKeeperTuning KT;
@@ -120,6 +126,9 @@ namespace SkateTeamTestsDetail
 			Q.BallVel = BallVel;
 			Q.BallRadius = T.BallPhysics.Radius;
 			Q.bBallHeldByOther = Holder != NoHolder && Holder != Index;
+			// Same rule as USkateBallControlComponent: an opponent's ball may be taken after the protection time.
+			Q.bStealAllowed = Q.bBallHeldByOther && Holder != KeeperHolder && Team[Holder] != Team[Index]
+				&& S[Holder].Control.Possession.TimeHeld >= T.BallControl.Possession.StealProtectTime;
 			Q.BallTimeSinceImpulse = BallSinceImpulse;
 			Q.bIncomingPass = LastKind == ESkateImpulseKind::Push && LastSource != Index;
 			return Q;
@@ -139,16 +148,45 @@ namespace SkateTeamTestsDetail
 			return FSkateTeammateAI::Think(View, &S[Index].Mode);
 		}
 
+		FSkateOpponentView OpponentView(int Index) const
+		{
+			FSkateOpponentView View;
+			View.Pos = S[Index].Pos;
+			View.Vel = S[Index].State.Velocity;
+			View.Heading = S[Index].State.Heading;
+			View.bBallValid = true;
+			View.BallPos = BallPos.XY();
+			View.BallVel = BallVel.XY();
+			if (Holder == Index) { View.BallOwner = ESkateBallOwner::Me; }
+			else if (Holder == KeeperHolder) { View.BallOwner = ESkateBallOwner::Keeper; }
+			else if (Holder != NoHolder) { View.BallOwner = Team[Holder] == Team[Index] ? ESkateBallOwner::Teammate : ESkateBallOwner::Opponent; }
+			View.AttackGoal = Goal.Center;
+			View.OwnGoal = FSkateVec2(-Goal.Center.X, Goal.Center.Y);
+			View.GoalHalfWidth = Goal.HalfWidth;
+			View.bChaser = true;
+			View.bThreatValid = true;
+			View.ThreatPos = S[1 - Index].Pos;
+			return View;
+		}
+
 		void Frame(const FSkateMoveInput In[2], const FSkateBallActionInput Act[2], float Dt)
 		{
 			Time += Dt;
 			BallSinceImpulse += Dt;
 			FSkateMoveInput Used[2] = { In[0], In[1] };
+			FSkateBallActionInput UsedAct[2] = { Act[0], Act[1] };
 			for (int Index = 0; Index < 2; ++Index)
 			{
 				if (S[Index].bAI)
 				{
 					Used[Index] = AIInput(Index);
+				}
+				else if (S[Index].bOpponent)
+				{
+					const FSkateOpponentDecision Dec = FSkateOpponentAI::Think(OpponentView(Index), S[Index].Brain, Dt);
+					Used[Index] = Dec.Move;
+					UsedAct[Index] = Dec.Actions;
+					S[Index].OppMode = Dec.Mode;
 				}
 				FSkateModel::Step(T.Movement, Used[Index], Dt, S[Index].State);
 				S[Index].Pos += S[Index].State.Velocity * Dt;
@@ -216,7 +254,7 @@ namespace SkateTeamTestsDetail
 			for (int Index = 0; Index < 2; ++Index)
 			{
 				FSkateBallCarry Carry;
-				const FSkateBallImpulse Imp = FSkateBallControl::Update(T.BallControl, Query(Index, Used[Index]), Act[Index], Dt, S[Index].Control, S[Index].Report, &Carry);
+				const FSkateBallImpulse Imp = FSkateBallControl::Update(T.BallControl, Query(Index, Used[Index]), UsedAct[Index], Dt, S[Index].Control, S[Index].Report, &Carry);
 				if (Imp.IsValid())
 				{
 					BallVel = Imp.NewBallVelocity;
@@ -475,6 +513,91 @@ namespace SkateTeamTestsDetail
 		});
 		R.bPassed = GotIt > 0.f && GotIt < 3.5f && Sim.S[1].BodyBlocks == 0;
 		R.Details = Fmt("resting ball 5.6 m away (behind the teammate): fetched and trapped after %.2fs, bounces %d", GotIt, Sim.S[1].BodyBlocks);
+		Out.push_back(R);
+	}
+
+	// ---------------------------------- Opponents ------------------------------------------
+
+	void TestOpponentSteals(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.OpponentStealsHeldBall");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(900.f, 0.f), FSkateVec2(-1.f, 0.f));
+		Sim.GiveBall(0, Dt);
+		const bool bHeld = Sim.S[0].Control.Possession.bPossessed;
+		Sim.S[1].bOpponent = true; // chaser: presses the carrier
+		float Stolen = -1.f;
+		Sim.Run(5.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f; // the carrier just stands there
+			if (Stolen < 0.f && Sim.S[1].Control.Possession.bPossessed) { Stolen = Time; }
+		});
+		const bool bTaken = Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Taken;
+		R.bPassed = bHeld && Stolen > Sim.T.BallControl.Possession.StealProtectTime && Stolen < 4.f && bTaken && !Sim.S[0].Control.Possession.bPossessed && Sim.DoubleImpulses == 0;
+		R.Details = Fmt("opponent 9 m away presses a standing carrier: ball taken after %.2fs (loss %s), carrier still has it %d, double impulses %d",
+			Stolen, bTaken ? "Taken" : "other", Sim.S[0].Control.Possession.bPossessed ? 1 : 0, Sim.DoubleImpulses);
+		Out.push_back(R);
+	}
+
+	void TestOpponentAttacksAndShoots(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.OpponentCarriesAndShootsOnTarget");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(-2000.f, -1200.f), FSkateVec2(1.f, 0.f)); // out of the way
+		Sim.Place(1, FSkateVec2(-500.f, -300.f), FSkateVec2(1.f, 0.f));
+		Sim.GiveBall(1, Dt);
+		Sim.S[1].bOpponent = true;
+		float ShotTime = -1.f;
+		float ShotDist = 0.f;
+		float CrossLateral = 1e9f;
+		Sim.Run(8.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			if (ShotTime < 0.f && Sim.LastKind == ESkateImpulseKind::Kick && Sim.LastSource == 1 && Sim.BallSinceImpulse < Dt)
+			{
+				ShotTime = Time;
+				ShotDist = (Sim.Goal.Center - Sim.S[1].Pos).Size();
+				// Where the shot crosses the goal line (straight-line path on the ice).
+				const FSkateVec2 V = Sim.BallVel.XY();
+				const float Closing = -V.Dot(Sim.Goal.Normal);
+				const float Along = Sim.Goal.Along(Sim.BallPos.XY());
+				if (Closing > 1.f)
+				{
+					CrossLateral = Sim.Goal.Lateral(Sim.BallPos.XY() + V * (Along / Closing));
+				}
+			}
+		});
+		const bool bOnTarget = SkateMath::Abs(CrossLateral) < Sim.Goal.HalfWidth;
+		R.bPassed = ShotTime > 0.f && ShotTime < 7.f && ShotDist < FSkateOpponentAI::ShootDistance + 100.f && bOnTarget;
+		R.Details = Fmt("AI with the ball 31 m out: shot at %.2fs from %.0f cm, crosses the line %.0f cm off centre (mouth +-%.0f)",
+			ShotTime, ShotDist, CrossLateral < 1e8f ? CrossLateral : -1.f, Sim.Goal.HalfWidth);
+		Out.push_back(R);
+	}
+
+	void TestOpponentDodgesBlocker(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.OpponentSkatesAroundBlocker");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(300.f, 0.f), FSkateVec2(-1.f, 0.f)); // stands in the way, facing the carrier
+		Sim.Place(1, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.GiveBall(1, Dt);
+		Sim.S[1].bOpponent = true;
+		float Passed = -1.f;
+		Sim.Run(4.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			if (Passed < 0.f && Sim.S[1].Pos.X > 600.f && Sim.S[1].Control.Possession.bPossessed) { Passed = Time; }
+		});
+		R.bPassed = Passed > 0.f && Passed < 3.5f && Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::None;
+		R.Details = Fmt("blocker 3 m ahead of the AI carrier: got past with the ball after %.2fs, blocker ever had it %d",
+			Passed, Sim.S[0].Control.Possession.AcquireCount);
 		Out.push_back(R);
 	}
 
@@ -745,6 +868,9 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestNoStealFromTeammate(Out);
 	TestTeammateWaitsAndFaces(Out);
 	TestTeammateFetches(Out);
+	TestOpponentSteals(Out);
+	TestOpponentAttacksAndShoots(Out);
+	TestOpponentDodgesBlocker(Out);
 	TestKeeperPositioning(Out);
 	TestKeeperSaves(Out);
 	TestKeeperCanBeBeaten(Out);

@@ -4,13 +4,15 @@
 #include "Engine/World.h"
 #include "Skate/SkateArena.h"
 #include "Skate/SkateBall.h"
+#include "EngineUtils.h"
+#include "IceFootball.h"
 #include "Skate/SkateCharacter.h"
-#include "Skate/SkatePlayerController.h"
 #include "Skate/SkateVisuals.h"
 
 namespace SkateGoalkeeperDetail
 {
-	const FLinearColor Jersey(0.10f, 0.55f, 0.20f);
+	const FLinearColor JerseyTeam0(0.55f, 0.10f, 0.08f);
+	const FLinearColor JerseyTeam1(0.08f, 0.18f, 0.55f);
 	const FLinearColor Pants(0.05f, 0.05f, 0.06f);
 	const FLinearColor Skin(0.92f, 0.72f, 0.58f);
 	const FLinearColor Gloves(0.95f, 0.95f, 0.90f);
@@ -42,9 +44,11 @@ ASkateGoalkeeper::ASkateGoalkeeper()
 	HandLocal[1] = FVector(28.f, 48.f, 22.f);
 }
 
-void ASkateGoalkeeper::SetArena(ASkateArena* InArena)
+void ASkateGoalkeeper::SetGoal(ASkateArena* InArena, int32 InGoalIndex, int32 InTeam)
 {
 	Arena = InArena;
+	GoalIndex = InGoalIndex;
+	Team = InTeam;
 }
 
 void ASkateGoalkeeper::BeginPlay()
@@ -61,6 +65,7 @@ void ASkateGoalkeeper::BuildBody()
 	{
 		return;
 	}
+	const FLinearColor& Jersey = Team == 0 ? JerseyTeam0 : JerseyTeam1;
 	auto Add = [this](const TCHAR* Shape, const FLinearColor& Color)
 	{
 		return SkateVisuals::AddPart(this, BodyPivot, Shape, Color, true);
@@ -93,20 +98,28 @@ FSkateGoalFrame ASkateGoalkeeper::GoalFrame() const
 {
 	if (const ASkateArena* Rink = Arena.Get())
 	{
-		return Rink->GetGoalFrame();
+		return Rink->GetGoalFrame(GoalIndex);
 	}
 	return FSkateGoalFrame();
 }
 
 FVector2D ASkateGoalkeeper::ThrowTarget() const
 {
-	// Roll the ball out to the skater the player controls right now.
-	if (const ASkatePlayerController* Pc = Cast<ASkatePlayerController>(GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr))
+	// Roll the ball out to the nearest skater of the keeper's own team.
+	const ASkateCharacter* Best = nullptr;
+	float BestDist = TNumericLimits<float>::Max();
+	for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
 	{
-		if (const ASkateCharacter* Skater = Pc->GetSkater())
+		const float Dist = static_cast<float>(FVector::Dist2D(It->GetActorLocation(), GetActorLocation()));
+		if (It->GetTeam() == Team && Dist < BestDist)
 		{
-			return FVector2D(Skater->GetActorLocation());
+			Best = *It;
+			BestDist = Dist;
 		}
+	}
+	if (Best)
+	{
+		return FVector2D(Best->GetActorLocation());
 	}
 	const FSkateGoalFrame Goal = GoalFrame();
 	return SkateGoalkeeperDetail::ToVector2D(Goal.ToWorld(1500.f, 0.f));
@@ -138,7 +151,7 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 	{
 		return;
 	}
-	const FSkateGoalFrame Goal = Rink->GetGoalFrame();
+	const FSkateGoalFrame Goal = Rink->GetGoalFrame(GoalIndex);
 	ASkateBall* Ball = Rink->GetBall();
 
 	FSkateKeeperBall KeeperBall;
@@ -157,6 +170,11 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 
 	if (Ball)
 	{
+		if (Out.Action != ESkateKeeperAction::None)
+		{
+			UE_LOG(LogIceSkate, Verbose, TEXT("Keeper team %d: %s, ball %.0f cm/s"), Team, ANSI_TO_TCHAR(SkateKeeperActionName(Out.Action)),
+				static_cast<float>(Ball->GetBallVelocity().Size()));
+		}
 		switch (Out.Action)
 		{
 		case ESkateKeeperAction::Parry:

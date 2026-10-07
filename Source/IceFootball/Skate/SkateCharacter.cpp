@@ -60,7 +60,11 @@ void ASkateCharacter::BeginPlay()
 	}
 	if (Puppet)
 	{
-		// Same team: same jersey; the chest patch tells the two skaters apart (white = 1, yellow = 2).
+		// Red = the player's team, blue = opponents; the chest patch tells the two skaters apart (white = 1, yellow = 2).
+		if (Team != 0)
+		{
+			Puppet->SetJerseyColor(FLinearColor(0.10f, 0.30f, 0.85f), FLinearColor(0.06f, 0.20f, 0.60f));
+		}
 		Puppet->SetMarkColor(TeamSlot == 0 ? FLinearColor(0.95f, 0.95f, 0.95f) : FLinearColor(1.f, 0.85f, 0.05f));
 	}
 	Super::BeginPlay();
@@ -158,7 +162,7 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 	}
 }
 
-void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input)
+void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input, const FSkateBallActionInput* Actions)
 {
 	LastFrameInput = FSkateFrameInput();
 	LastStick.Direction = Input.Direction;
@@ -166,6 +170,10 @@ void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input)
 	LastBrake = Input.Brake;
 	LastBoost = Input.Boost;
 	SkateMovement->SetSkateInput(Input);
+	if (BallControl && Actions)
+	{
+		BallControl->QueueActions(Actions->bPushPressed, Actions->bPushReleased, Actions->bKickPressed, Actions->bKickReleased);
+	}
 }
 
 void ASkateCharacter::CancelBallActions()

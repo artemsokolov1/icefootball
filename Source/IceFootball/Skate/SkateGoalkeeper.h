@@ -27,7 +27,9 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	void SetArena(ASkateArena* InArena);
+	/** Which goal (0 = +X, 1 = -X) this keeper guards and which team it plays for (throw-outs go to that team). */
+	void SetGoal(ASkateArena* InArena, int32 InGoalIndex, int32 InTeam);
+	int32 GetTeam() const { return Team; }
 	/** Back to the middle of the goal, ball released (scene reset). */
 	void ResetKeeper();
 
@@ -54,6 +56,8 @@ private:
 	FVector2D ThrowTarget() const;
 
 	TWeakObjectPtr<ASkateArena> Arena;
+	int32 GoalIndex = 0;
+	int32 Team = 1;
 	FSkateKeeperState State;
 	bool bBuilt = false;
 	FVector HandLocal[2];
