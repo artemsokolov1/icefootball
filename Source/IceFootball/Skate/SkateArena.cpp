@@ -70,7 +70,7 @@ bool ASkateArena::FindGroundTop(float& OutTopZ) const
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(SkateArenaGround), true, this);
 	if (Ball)
 	{
-		Params.AddIgnoredActor(Ball);
+		Params.AddIgnoredActor(Ball.Get());
 	}
 	FCollisionObjectQueryParams Objects(ECC_WorldStatic);
 	Objects.AddObjectTypesToQuery(ECC_WorldDynamic);
@@ -79,8 +79,7 @@ bool ASkateArena::FindGroundTop(float& OutTopZ) const
 	const FVector Origin = GetActorLocation();
 	const float HalfL = Layout.RinkSize.X * 0.5f + Layout.BoardThickness;
 	const float HalfW = Layout.RinkSize.Y * 0.5f + Layout.BoardThickness;
-	bool bFound = false;
-	OutTopZ = -1.e9f;
+	TArray<float> Heights;
 	for (int32 Ix = -3; Ix <= 3; ++Ix)
 	{
 		for (int32 Iy = -2; Iy <= 2; ++Iy)
@@ -89,12 +88,26 @@ bool ASkateArena::FindGroundTop(float& OutTopZ) const
 			FHitResult Hit;
 			if (World->LineTraceSingleByObjectType(Hit, FVector(P.X, P.Y, Origin.Z + 50000.0), FVector(P.X, P.Y, Origin.Z - 50000.0), Objects, Params))
 			{
-				OutTopZ = FMath::Max(OutTopZ, static_cast<float>(Hit.ImpactPoint.Z));
-				bFound = true;
+				Heights.Add(static_cast<float>(Hit.ImpactPoint.Z));
 			}
 		}
 	}
-	return bFound;
+	if (Heights.Num() == 0)
+	{
+		return false;
+	}
+	// Highest ground sample, ignoring isolated tall props (trees, walls) more than 1.5 m above the median.
+	Heights.Sort();
+	const float Median = Heights[Heights.Num() / 2];
+	OutTopZ = Median;
+	for (const float Height : Heights)
+	{
+		if (Height <= Median + 150.f)
+		{
+			OutTopZ = FMath::Max(OutTopZ, Height);
+		}
+	}
+	return true;
 }
 
 bool ASkateArena::SettleOnGround()
