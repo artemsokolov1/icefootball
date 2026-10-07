@@ -213,7 +213,17 @@ void ASkateGoalkeeper::ApplyPose(const FSkateKeeperPose& Pose, float DeltaSecond
 	// Dive: hips go sideways and down, the body rolls over onto that side (roll < 0 tips +Z towards +Y).
 	const float A = Pose.DiveAlpha;
 	const float S = Pose.DiveSign;
-	BodyPivot->SetRelativeLocationAndRotation(FVector(0.f, S * A * 55.f, HipHeight - A * 60.f), FRotator(0.f, 0.f, -S * 80.f * A));
+	// Butterfly: hips drop, knees go out, the skates stay on the ice.
+	Butterfly = DeltaSeconds > 0.f ? FMath::FInterpTo(Butterfly, Pose.ButterflyAlpha, DeltaSeconds, 10.f) : Pose.ButterflyAlpha;
+	const float Drop = 34.f * Butterfly;
+	BodyPivot->SetRelativeLocationAndRotation(FVector(0.f, S * A * 55.f, HipHeight - A * 60.f - Drop), FRotator(0.f, 0.f, -S * 80.f * A));
+	for (int32 Side = 0; Side < 2; ++Side)
+	{
+		const FVector Mirror(1.f, Side == 0 ? -1.f : 1.f, 1.f);
+		const FVector AnkleNow = (Ankle + FVector(4.f * Butterfly, 36.f * Butterfly, Drop)) * Mirror;
+		SkateVisuals::SetSegment(Leg[Side], Hip * Mirror, AnkleNow, 15.f, 15.f);
+		Skate[Side]->SetRelativeTransform(FTransform(FRotator(0.f, Mirror.Y * 35.f * Butterfly, 0.f), AnkleNow + FVector(6.f, 0.f, -5.f), FVector(30.f, 9.f, 9.f) / 100.f));
+	}
 
 	// Hands: ready position, reaching for the ball, stretched over the head in a dive, or holding the ball.
 	for (int32 Side = 0; Side < 2; ++Side)

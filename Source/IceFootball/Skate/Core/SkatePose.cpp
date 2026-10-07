@@ -72,8 +72,12 @@ FSkatePose FSkatePoseSolver::Update(const FSkateAnimTuning& Tuning, const FSkate
 	S.Brake = Approach(S.Brake, BrakeTarget, Dt, Tuning.PoseSmoothTime);
 	S.StrideAmp = Approach(S.StrideAmp, PushTarget * (1.f - S.Brake), Dt, 0.12f);
 	S.LeanRight = Approach(S.LeanRight, LeanTarget, Dt, Tuning.PoseSmoothTime);
-	S.LeanForward = Approach(S.LeanForward, PushTarget * Tuning.PushForwardLean - S.Brake * Tuning.BrakeBackLean + In.KickCharge * 6.f, Dt, Tuning.PoseSmoothTime);
-	S.Crouch = Approach(S.Crouch, 8.f + 10.f * PushTarget + 14.f * S.Brake + 4.f * SkateMath::Min(SpeedRatio, 1.f) + 6.f * In.KickCharge, Dt, Tuning.PoseSmoothTime);
+	S.Check = Approach(S.Check, In.CheckAlpha, Dt, 0.05f);
+	S.Stun = Approach(S.Stun, In.StunAlpha, Dt, 0.08f);
+	S.LeanForward = Approach(S.LeanForward, PushTarget * Tuning.PushForwardLean - S.Brake * Tuning.BrakeBackLean + In.KickCharge * 6.f
+		+ 22.f * S.Check - 18.f * S.Stun, Dt, Tuning.PoseSmoothTime);
+	S.Crouch = Approach(S.Crouch, 8.f + 10.f * PushTarget + 14.f * S.Brake + 4.f * SkateMath::Min(SpeedRatio, 1.f) + 6.f * In.KickCharge
+		+ 10.f * S.Check + 12.f * S.Stun, Dt, Tuning.PoseSmoothTime);
 	S.Twist = Approach(S.Twist, S.Brake * Tuning.BrakeTwist * S.TwistSign, Dt, Tuning.PoseSmoothTime);
 	// The kick swing starts from the wind-up itself, so the wind-up layer is dropped on release.
 	for (int Side = 0; Side < 2; ++Side)
@@ -81,7 +85,7 @@ FSkatePose FSkatePoseSolver::Update(const FSkateAnimTuning& Tuning, const FSkate
 		const float Target = Side == In.ChargeFoot ? In.KickCharge : 0.f;
 		S.Charge[Side] = bKickSwing && Side == In.SwingFoot ? 0.f : Approach(S.Charge[Side], Target, Dt, 0.04f);
 	}
-	S.ArmOpen = Approach(S.ArmOpen, SkateMath::Max(S.Brake, bKickSwing ? 0.6f : 0.f), Dt, 0.1f);
+	S.ArmOpen = Approach(S.ArmOpen, SkateMath::Max(SkateMath::Max(S.Brake, bKickSwing ? 0.6f : 0.f), 0.9f * S.Stun), Dt, 0.1f);
 
 	const float StrideRate = SkateMath::Lerp(Tuning.StrideRateSlow, Tuning.StrideRateFast, SkateMath::Min(SpeedRatio, 1.f));
 	if (S.StrideAmp > 0.02f)
@@ -228,6 +232,10 @@ FSkatePose FSkatePoseSolver::Update(const FSkateAnimTuning& Tuning, const FSkate
 		// Kick wind-up: counter-balance, the arm opposite the kicking leg forward, the same-side arm back, both out.
 		SwingDeg += S.Charge[1] * (Side == 0 ? 30.f : -25.f) + S.Charge[0] * (Side == 1 ? 30.f : -25.f);
 		AbductDeg += 25.f * (S.Charge[0] + S.Charge[1]);
+		// Body check: both arms driven forward and in, elbows bent (a shove).
+		SwingDeg += 45.f * S.Check;
+		AbductDeg -= 10.f * S.Check;
+		ElbowDeg += 30.f * S.Check;
 
 		const FSkateVec3 UpperDir = HangDirection(Down, Pose.TorsoForward, Out, SwingDeg, AbductDeg);
 		Pose.Elbow[Side] = Pose.Shoulder[Side] + UpperDir * SkateBody::UpperArmLength;
@@ -237,7 +245,9 @@ FSkatePose FSkatePoseSolver::Update(const FSkateAnimTuning& Tuning, const FSkate
 
 	// ---- Label for the HUD ----
 	const float SwingTime = In.SwingTime;
-	if (bKickSwing) { Pose.Label = "Kick swing"; }
+	if (S.Stun > 0.3f) { Pose.Label = "Checked (stagger)"; }
+	else if (S.Check > 0.3f) { Pose.Label = "Body check"; }
+	else if (bKickSwing) { Pose.Label = "Kick swing"; }
 	else if (S.Charge[0] + S.Charge[1] > 0.05f) { Pose.Label = "Kick wind-up"; }
 	else if (In.SwingKind != ESkateImpulseKind::None && In.SwingKind != ESkateImpulseKind::Kick && SwingTime < PushSwingTime) { Pose.Label = "Touch / push"; }
 	else if (S.Brake > 0.3f) { Pose.Label = "Brake (blades across)"; }

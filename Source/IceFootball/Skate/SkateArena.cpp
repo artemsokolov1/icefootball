@@ -297,6 +297,7 @@ void ASkateArena::ResetScene()
 	}
 	bBallInGoal = false;
 	GoalPauseLeft = -1.f;
+	FaceOffLeft = Layout.FaceOffCountdown;
 }
 
 void ASkateArena::RestartMatch()
@@ -650,13 +651,27 @@ void ASkateArena::Tick(float DeltaSeconds)
 		return;
 	}
 
-	// Match clock and the pause after a goal.
+	// Match clock, the pause after a goal, the face-off countdown.
+	TimeSinceDrop += DeltaSeconds;
 	if (GoalPauseLeft >= 0.f)
 	{
 		GoalPauseLeft -= DeltaSeconds;
 		if (GoalPauseLeft < 0.f)
 		{
 			ResetScene();
+		}
+		return;
+	}
+	if (FaceOffLeft >= 0.f)
+	{
+		FaceOffLeft -= DeltaSeconds;
+		Ball->ResetBall(GetBallSpawnLocation()); // waits on the spot
+		if (FaceOffLeft < 0.f)
+		{
+			// The drop: a small random nudge, so the face-off is not a pure reaction test.
+			const FVector Nudge(FMath::FRandRange(-120.f, 120.f), FMath::FRandRange(-260.f, 260.f), 0.f);
+			Ball->ApplyGameplayVelocity(Nudge, ESkateImpulseKind::Touch, this);
+			TimeSinceDrop = 0.f;
 		}
 		return;
 	}

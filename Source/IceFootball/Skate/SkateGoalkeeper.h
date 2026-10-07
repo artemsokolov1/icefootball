@@ -59,6 +59,7 @@ private:
 	int32 GoalIndex = 0;
 	int32 Team = 1;
 	FSkateKeeperState State;
+	float Butterfly = 0.f;
 	bool bBuilt = false;
 	FVector HandLocal[2];
 

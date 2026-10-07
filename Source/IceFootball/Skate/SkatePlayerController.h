@@ -64,6 +64,9 @@ public:
 	/** Switch control to the teammate the player passes to, and to a teammate that gets the ball. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
 	bool bAutoSwitch = true;
+	/** Spectator mode: the player's skaters are driven by the AI too (bots vs bots), the stick is ignored. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
+	bool bBotsVsBots = false;
 	int32 GetFpsCap() const;
 	bool WasLastInputGamepad() const { return bLastInputGamepad; }
 

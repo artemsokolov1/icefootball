@@ -573,6 +573,14 @@ struct FSkateAITuning
 	/** Pressing the carrier: the AI presses the check button when the ball is closer than this (cm) and ahead. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0"))
 	float CheckRange = 170.f;
+
+	/** Random sideways error (cm) on the AI's shots: it aims at the corner but is not a machine. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0"))
+	float AimError = 90.f;
+
+	/** The AI stays put this long (s) after the face-off drop: the player's reaction time, not a free ball for the bot. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0"))
+	float FaceOffReaction = 0.35f;
 };
 
 /** NHL-style side camera (ASkateCameraRig): high on the stands, looks across the rink, slides along it. */
@@ -731,6 +739,32 @@ USTRUCT(BlueprintType)
 struct FSkateKeeperTuning
 {
 	GENERATED_BODY()
+
+	/** Challenge: with the ball loose or carried in front of the goal and no shot under way, the keeper comes out
+	 *  up to ChallengeDepth (cm) as the ball closes from ChallengeFar to ChallengeNear (cm from the goal line),
+	 *  at ChallengeSpeed (cm/s). Cuts the angle on close shots. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ChallengeDepth = 160.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ChallengeNear = 450.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ChallengeFar = 1300.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ChallengeSpeed = 350.f;
+
+	/** Butterfly: with the ball closer than ButterflyRange (cm) the keeper drops and covers low balls (bottom under
+	 *  ButterflyMaxHeight cm) out to ButterflyReach (cm) each side without a dive. High close shots still score. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ButterflyRange = 800.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ButterflyReach = 110.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ButterflyMaxHeight = 70.f;
 
 	/** The keeper stands this far (cm) in front of the goal line. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))

@@ -87,6 +87,10 @@ struct FSkateSkaterBrain
 	float ChargeLeft = -1.f;
 	bool bChargingShot = false;
 	FSkateVec2 Aim;
+	/** Deterministic random stream for the shot error (seed it per skater for variety). */
+	unsigned int Seed = 12345u;
+	/** Next value in [-1, 1). */
+	float NextSigned();
 };
 
 struct FSkateSkaterDecision

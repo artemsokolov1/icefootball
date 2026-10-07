@@ -79,6 +79,12 @@ FSkateMoveInput SkateSteer::GoTo(const FSkateVec2& Pos, const FSkateVec2& Vel, c
 	return In;
 }
 
+float FSkateSkaterBrain::NextSigned()
+{
+	Seed = Seed * 1664525u + 1013904223u; // ponytail: LCG, plenty for aim noise
+	return static_cast<float>((Seed >> 8) & 0xFFFFu) / 32768.f - 1.f;
+}
+
 const char* SkateSkaterModeName(ESkateSkaterMode Mode)
 {
 	switch (Mode)
@@ -143,7 +149,7 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		{
 			const FSkateVec2 Right = GoalDir.Right();
 			const float MySide = (View.Pos - View.AttackGoal).Dot(Right) >= 0.f ? 1.f : -1.f;
-			Brain.Aim = View.AttackGoal - Right * (MySide * View.GoalHalfWidth * 0.7f);
+			Brain.Aim = View.AttackGoal - Right * (MySide * View.GoalHalfWidth * 0.6f + Brain.NextSigned() * Tuning.AimError);
 			Brain.ChargeLeft = Tuning.ShotCharge;
 			Brain.bChargingShot = true;
 			D.Actions.bKickPressed = true;

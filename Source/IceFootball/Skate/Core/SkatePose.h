@@ -10,6 +10,8 @@
 //                  lean back, arms open for balance
 //   touch / push / kick - the playing leg (left or right, chosen by the ball control) taps or swings
 //                  (kick: wind-up while charging, swing on release); dribble taps alternate feet
+//   check        - shoulder forward, arms driven in front, low (the body check lunge)
+//   stagger      - knocked: leans back and low, arms out for balance
 // Legs and arms are 2-bone chains (IK for the legs, so the blades stay on the ice).
 // Output is in skater-local space: X forward, Y right, Z up, origin on the ice under the capsule.
 #pragma once
@@ -59,6 +61,8 @@ struct FSkatePoseInput
 	int SwingFoot = 1;          // leg that taps / swings (0 = left, 1 = right)
 	float SwingTime = 100.f;    // s since the last touch / push / kick (or whiff)
 	float SwingPower = 0.f;
+	float CheckAlpha = 0.f;     // 1 while the check button's window is open
+	float StunAlpha = 0.f;      // 1 while knocked by a check
 };
 
 struct FSkatePose
@@ -101,6 +105,8 @@ struct FSkatePoseState
 	float StridePhase = 0.f;
 	float Charge[2] = { 0.f, 0.f }; // wind-up per leg [left, right]
 	float ArmOpen = 0.f;
+	float Check = 0.f;
+	float Stun = 0.f;
 };
 
 class FSkatePoseSolver

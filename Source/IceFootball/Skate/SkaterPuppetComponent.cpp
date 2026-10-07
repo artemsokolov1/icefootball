@@ -108,6 +108,8 @@ void USkaterPuppetComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	Input.SkidAmount = FMath::Clamp(State.ScrubDecel / 900.f, 0.f, 1.f);
 	Input.LateralAccel = State.LateralAccel;
 	Input.SlideSide = static_cast<float>(State.Heading.X * Vel.Y - State.Heading.Y * Vel.X) >= 0.f ? 1.f : -1.f;
+	Input.CheckAlpha = Skater->IsChecking() ? 1.f : 0.f;
+	Input.StunAlpha = Skater->IsStunned() ? 1.f : 0.f;
 	if (const USkateBallControlComponent* Ball = Skater->GetBallControl())
 	{
 		// A charged pass winds the leg up too, a little less than a shot.

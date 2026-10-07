@@ -81,6 +81,10 @@ struct FSkateArenaLayout
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
 	float GoalPause = 2.5f;
 
+	/** Face-off: everyone stands still this long (s) with the ball on the spot, then it is dropped with a small random nudge. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
+	float FaceOffCountdown = 2.f;
+
 	/** Also paints the skating test course (acceleration lane, stop zone, slalom cones, figure eight). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Training")
 	bool bTrainingCourse = false;
@@ -175,6 +179,11 @@ public:
 	bool IsMatchOver() const { return bMatchOver; }
 	/** The pause after a goal: the AI skaters stand still until the face-off. */
 	bool IsGoalPause() const { return GoalPauseLeft >= 0.f; }
+	/** The face-off countdown: nobody moves, the ball waits on the spot. */
+	bool IsFaceOff() const { return FaceOffLeft >= 0.f; }
+	float GetFaceOffLeft() const { return FaceOffLeft; }
+	/** Seconds since the last face-off drop (large before the first one). */
+	float GetTimeSinceDrop() const { return TimeSinceDrop; }
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
@@ -242,6 +251,8 @@ private:
 	float Clock = 0.f;
 	/** Seconds left before the face-off after a goal (< 0: play on). */
 	float GoalPauseLeft = -1.f;
+	float FaceOffLeft = -1.f;
+	float TimeSinceDrop = 100.f;
 	bool bMatchOver = false;
 	bool bBallInGoal = false;
 	float SettleTimer = 0.f;

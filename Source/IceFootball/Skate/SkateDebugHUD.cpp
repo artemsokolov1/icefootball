@@ -169,8 +169,13 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		}
 	}
 
-	// Goal flash / full time.
-	if (Arena && Arena->IsMatchOver())
+	// Goal flash / full time / face-off.
+	if (Arena && Arena->IsFaceOff())
+	{
+		const FString Text = FString::Printf(TEXT("FACE-OFF  %d"), FMath::CeilToInt(Arena->GetFaceOffLeft()));
+		DrawText(Text, Info, Canvas->ClipX * 0.5f - 90.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.5f);
+	}
+	else if (Arena && Arena->IsMatchOver())
 	{
 		const FString Text = FString::Printf(TEXT("FULL TIME   YOU %d : %d CPU      Y / R: new match"), Arena->GetScore(0), Arena->GetScore(1));
 		DrawText(Text, Good, Canvas->ClipX * 0.5f - 260.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.5f);

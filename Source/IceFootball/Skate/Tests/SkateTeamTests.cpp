@@ -857,6 +857,31 @@ namespace SkateTeamTestsDetail
 		Out.push_back(R);
 	}
 
+	void TestKeeperCloseRange(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Keeper.ClosesDownCloseShots");
+		const float Dt = 1.f / 60.f;
+		// Ball resting 5 m out: the keeper has come out and dropped into the butterfly.
+		FTeamSim Sim = MakeKeeperSim();
+		Sim.BallPos = FSkateVec3(Sim.Goal.ToWorld(500.f, 0.f), Sim.T.BallPhysics.Radius);
+		Sim.Run(2.f, Dt);
+		const float Depth = Sim.K.Depth;
+		const bool bButterfly = Sim.K.bButterfly;
+		// Low shot at the corner from 5 m: saved by the pads. The same shot lifted over them: goal.
+		FShot Low; Low.FromAlong = 500.f; Low.AimLateral = 170.f; Low.Speed = 2800.f;
+		FShot High = Low; High.Lift = 900.f; // over the pads, under the bar
+		const FShotOutcome L = Shoot(Low, Dt);
+		const FShotOutcome H = Shoot(High, Dt);
+		// Far ball: the keeper stays home.
+		FTeamSim Far = MakeKeeperSim();
+		Far.BallPos = FSkateVec3(Far.Goal.ToWorld(1800.f, 0.f), Far.T.BallPhysics.Radius);
+		Far.Run(2.f, Dt);
+		R.bPassed = Depth > 100.f && bButterfly && L.Result == EShotResult::Saved && H.Result == EShotResult::Goal && Far.K.Depth < 1.f;
+		R.Details = Fmt("ball 5 m out: keeper %.0f cm off the line, butterfly %d; low shot 2800 at +170 from 5 m: %s; lifted: %s; ball 18 m out: keeper %.0f cm off the line",
+			Depth, bButterfly ? 1 : 0, ShotResultName(L.Result), ShotResultName(H.Result), Far.K.Depth);
+		Out.push_back(R);
+	}
+
 	void TestKeeperParryGoesOut(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R("Keeper.ParryAwayFromGoal");
@@ -971,6 +996,7 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestKeeperPositioning(Out);
 	TestKeeperSaves(Out);
 	TestKeeperCanBeBeaten(Out);
+	TestKeeperCloseRange(Out);
 	TestKeeperParryGoesOut(Out);
 	TestKeeperCatchAndThrow(Out);
 	TestKeeperSmothersDribble(Out);

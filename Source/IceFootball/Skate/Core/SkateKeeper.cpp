@@ -55,13 +55,13 @@ float FSkateKeeper::DiveAlpha(const FSkateKeeperTuning& Tuning, const FSkateKeep
 	return U < 0.5f ? 1.f : 1.f - SkateMath::SmoothStep01((U - 0.5f) / 0.5f);
 }
 
-float FSkateKeeper::PositionTarget(const FSkateKeeperTuning& Tuning, const FSkateGoalFrame& Goal, const FSkateVec2& BallPos)
+float FSkateKeeper::PositionTarget(const FSkateKeeperTuning& Tuning, const FSkateGoalFrame& Goal, const FSkateVec2& BallPos, float ExtraDepth)
 {
 	const float H = Goal.HalfWidth;
 	const float Limit = SkateMath::Max(H - 25.f, 0.f);
 	const float Along = Goal.Along(BallPos);
 	const float Lateral = Goal.Lateral(BallPos);
-	const float L = Tuning.LineOffset;
+	const float L = Tuning.LineOffset + ExtraDepth;
 	if (Along < L + 20.f)
 	{
 		return SkateMath::Clamp(Lateral, -Limit, Limit);
@@ -93,6 +93,12 @@ bool FSkateKeeper::InReach(const FSkateKeeperTuning& Tuning, const FSkateKeeperS
 		ReachNeg = Tuning.StandReach + Ext;
 		ReachPos = SkateMath::Lerp(Tuning.StandReach, Tuning.BodyHalfWidth, Alpha);
 	}
+	// Butterfly: low balls are covered wide by the pads without a dive.
+	if (State.bButterfly && BallBottom <= Tuning.ButterflyMaxHeight)
+	{
+		ReachPos = SkateMath::Max(ReachPos, Tuning.ButterflyReach);
+		ReachNeg = SkateMath::Max(ReachNeg, Tuning.ButterflyReach);
+	}
 	if (BallLateral > ReachPos + BallRadius || BallLateral < -ReachNeg - BallRadius)
 	{
 		return false;
@@ -111,7 +117,21 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 	{
 		return Out;
 	}
-	const float L = Tuning.LineOffset;
+	// Challenge: come out towards a ball in front of the goal; hold the depth while a shot is under way or diving.
+	float DepthTarget = 0.f;
+	if (Ball.bValid && !State.bHolding)
+	{
+		const float AlongRaw = Goal.Along(Ball.Pos.XY());
+		if (AlongRaw > Tuning.LineOffset && SkateMath::Abs(Goal.Lateral(Ball.Pos.XY())) < Goal.HalfWidth + 150.f && AlongRaw < Tuning.ChallengeFar)
+		{
+			DepthTarget = Tuning.ChallengeDepth * SkateMath::Clamp01((Tuning.ChallengeFar - AlongRaw) / SkateMath::Max(Tuning.ChallengeFar - Tuning.ChallengeNear, 1.f));
+		}
+	}
+	if (!State.bThreat && State.DiveTime < 0.f)
+	{
+		State.Depth += SkateMath::Clamp(DepthTarget - State.Depth, -Tuning.ChallengeSpeed * Dt, Tuning.ChallengeSpeed * Dt);
+	}
+	const float L = Tuning.LineOffset + State.Depth;
 	const float LateralLimit = SkateMath::Max(Goal.HalfWidth - 10.f, 0.f);
 	State.TimeSinceRelease += Dt;
 	State.TimeSinceAction += Dt;
@@ -171,6 +191,7 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 	if (!Ball.bValid)
 	{
 		State.bThreat = false;
+		State.bButterfly = false;
 		Shuffle(0.f);
 		return Out;
 	}
@@ -182,6 +203,10 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 	const float VAlong = VelXY.Dot(Goal.Normal);
 	const float VLat = VelXY.Dot(Goal.Right());
 	const float Bottom = Ball.Pos.Z - Ball.Radius - Goal.IceZ;
+
+	// Butterfly: the ball is close in front -> drop and cover low.
+	State.bButterfly = State.DiveTime < 0.f && Along > L - BodyDepth && Along - L < Tuning.ButterflyRange
+		&& SkateMath::Abs(Lateral - State.Lateral) < Goal.HalfWidth + 100.f;
 
 	// ---- Shot tracking: where and when will the ball cross the keeper's line? ----
 	bool bThreatNow = false;
@@ -210,7 +235,7 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 	const bool bReacting = State.bThreat && State.ThreatTime >= Tuning.ReactionTime;
 
 	// ---- Move: cut the angle, or go for the shot ----
-	float Target = PositionTarget(Tuning, Goal, BallXY);
+	float Target = PositionTarget(Tuning, Goal, BallXY, State.Depth);
 	if (bReacting)
 	{
 		Target = SkateMath::Clamp(State.PredLateral, -LateralLimit, LateralLimit);
@@ -324,8 +349,9 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 FSkateKeeperPose FSkateKeeper::Pose(const FSkateKeeperTuning& Tuning, const FSkateGoalFrame& Goal, const FSkateKeeperState& State)
 {
 	FSkateKeeperPose Pose;
-	Pose.Position = Goal.ToWorld(Tuning.LineOffset, State.Lateral);
+	Pose.Position = Goal.ToWorld(Tuning.LineOffset + State.Depth, State.Lateral);
 	Pose.DiveAlpha = DiveAlpha(Tuning, State);
+	Pose.ButterflyAlpha = State.bButterfly ? 1.f : 0.f;
 	Pose.DiveSign = State.DiveSign;
 	Pose.bHolding = State.bHolding;
 	if (State.bThreat && State.ThreatTime >= Tuning.ReactionTime)

@@ -9,6 +9,10 @@
 // body is caught, held and then rolled out to the controlled skater; anything else is parried away
 // from the goal. Full-power shots into the corners beat the dive - goals are possible, not free.
 //
+// Close range: with the ball loose or carried in front and no shot under way the keeper comes out (challenge),
+// and with the ball within a few metres it drops into a butterfly that covers low balls wide without a dive.
+// High close shots still beat it.
+//
 // Goal space: Along = distance in front of the goal line (into the rink), Lateral = sideways
 // (positive towards GoalFrame.Normal.Right()), Height = above the ice.
 #pragma once
@@ -58,6 +62,9 @@ struct FSkateKeeperState
 {
 	float Lateral = 0.f;
 	float LateralVel = 0.f;
+	/** How far (cm) the keeper has come out beyond LineOffset (challenge). */
+	float Depth = 0.f;
+	bool bButterfly = false;
 
 	// Shot tracking.
 	bool bThreat = false;
@@ -102,6 +109,7 @@ struct FSkateKeeperPose
 	float ReachLateral = 0.f; // where the hands go (goal lateral, relative to the keeper)
 	float ReachHeight = 120.f;
 	bool bHolding = false;
+	float ButterflyAlpha = 0.f; // 1 = dropped low, legs spread
 };
 
 class FSkateKeeper
@@ -118,8 +126,8 @@ public:
 	/** 0..1 extension of the current dive (TimeOffset: seconds relative to the state's time, e.g. earlier in the frame). */
 	static float DiveAlpha(const FSkateKeeperTuning& Tuning, const FSkateKeeperState& State, float TimeOffset = 0.f);
 
-	/** Where the keeper wants to stand for a ball at BallPos (angle bisector, inside the posts). */
-	static float PositionTarget(const FSkateKeeperTuning& Tuning, const FSkateGoalFrame& Goal, const FSkateVec2& BallPos);
+	/** Where the keeper wants to stand for a ball at BallPos (angle bisector, inside the posts), standing ExtraDepth out. */
+	static float PositionTarget(const FSkateKeeperTuning& Tuning, const FSkateGoalFrame& Goal, const FSkateVec2& BallPos, float ExtraDepth = 0.f);
 
 	/** Can the keeper reach a ball at (lateral, lowest point height) on its line right now? */
 	static bool InReach(const FSkateKeeperTuning& Tuning, const FSkateKeeperState& State, float BallLateral, float BallBottom, float BallRadius,

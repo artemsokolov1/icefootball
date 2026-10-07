@@ -317,6 +317,7 @@ void ASkatePlayerController::RefreshTeam()
 		{
 			Opponents.Add(Skater);
 			OpponentBrains.AddDefaulted();
+			OpponentBrains.Last().Seed = 777u * (Skater->GetTeamSlot() + 1);
 			OpponentModes.Add(0);
 			continue;
 		}
@@ -474,11 +475,17 @@ void ASkatePlayerController::DriveAI()
 	for (int32 Index = 0; Index < Team.Num(); ++Index)
 	{
 		ASkateCharacter* Mate = Team[Index].Get();
-		if (Index == ActiveIndex || !Mate || !TeamBrains.IsValidIndex(Index))
+		if ((Index == ActiveIndex && !bBotsVsBots) || !Mate || !TeamBrains.IsValidIndex(Index))
 		{
 			continue;
 		}
-		DriveSkater(Mate, 0, Index == TeamChaser, GetSkater(), TeamBrains[Index], TeammateMode);
+		const ASkateCharacter* Partner = nullptr;
+		for (int32 Other = 0; Other < Team.Num() && !Partner; ++Other)
+		{
+			Partner = Other != Index ? Team[Other].Get() : nullptr;
+		}
+		uint8 ScratchMode = 0;
+		DriveSkater(Mate, 0, Index == TeamChaser, Partner, TeamBrains[Index], Index == ActiveIndex ? ScratchMode : TeammateMode);
 	}
 	for (int32 Index = 0; Index < Opponents.Num(); ++Index)
 	{
@@ -566,7 +573,7 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 	}
 
 	FSkateSkaterDecision Decision = FSkateSkaterAI::Think(View, Skater->GetActiveTuning().AI, Brain, GetWorld()->GetDeltaSeconds());
-	if (Arena->IsGoalPause())
+	if (Arena->IsGoalPause() || Arena->IsFaceOff() || Arena->GetTimeSinceDrop() < Skater->GetActiveTuning().AI.FaceOffReaction)
 	{
 		Decision = FSkateSkaterDecision();
 		Decision.Move.Brake = 1.f;
@@ -649,8 +656,19 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		FrameInput.bPushReleased = bPushReleaseEdge;
 		FrameInput.bKickPressed = bKickPressEdge;
 		FrameInput.bKickReleased = bKickReleaseEdge;
+		if (CachedArena.IsValid() && CachedArena->IsFaceOff())
+		{
+			// Everybody waits for the drop: no stick, no buttons, skates held.
+			const float Yaw = FrameInput.CameraYawDeg;
+			FrameInput = FSkateFrameInput();
+			FrameInput.CameraYawDeg = Yaw;
+			FrameInput.BrakeRaw = 1.f;
+		}
 		// Movement runs right after this (the pawn's movement ticks after its controller): no added latency.
-		Skater->ApplyFrameInput(FrameInput);
+		if (!bBotsVsBots)
+		{
+			Skater->ApplyFrameInput(FrameInput);
+		}
 	}
 	bPushEdge = false;
 	bPushReleaseEdge = false;
