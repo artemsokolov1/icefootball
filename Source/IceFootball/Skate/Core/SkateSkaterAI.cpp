@@ -14,21 +14,33 @@ namespace SkateSkaterAIDetail
 	constexpr float FacingStick = 0.06f;
 	constexpr float FacingDot = 0.94f; // ~20 deg
 
-	FSkateVec2 ClampToRink(const FSkateVec2& P, const FSkateVec2& Half)
+	FSkateVec2 ClampToRink(const FSkateVec2& P, const FSkateVec2& Half, float CornerRadius)
 	{
 		constexpr float Margin = 150.f;
-		return FSkateVec2(SkateMath::Clamp(P.X, -Half.X + Margin, Half.X - Margin), SkateMath::Clamp(P.Y, -Half.Y + Margin, Half.Y - Margin));
+		FSkateVec2 Q(SkateMath::Clamp(P.X, -Half.X + Margin, Half.X - Margin), SkateMath::Clamp(P.Y, -Half.Y + Margin, Half.Y - Margin));
+		// Rounded corners: pull a point in the corner square onto the arc.
+		const FSkateVec2 CornerCentre(SkateMath::Sign(Q.X) * (Half.X - CornerRadius), SkateMath::Sign(Q.Y) * (Half.Y - CornerRadius));
+		if (SkateMath::Abs(Q.X) > SkateMath::Abs(CornerCentre.X) && SkateMath::Abs(Q.Y) > SkateMath::Abs(CornerCentre.Y))
+		{
+			const FSkateVec2 FromCorner = Q - CornerCentre;
+			const float MaxR = CornerRadius - Margin;
+			if (FromCorner.Size() > MaxR)
+			{
+				Q = CornerCentre + FromCorner.GetSafeNormal() * MaxR;
+			}
+		}
+		return Q;
 	}
 
 	// Full stick towards Target, boosting when far. Arrives without stopping (play on).
-	FSkateMoveInput Towards(const FSkateVec2& Pos, const FSkateVec2& Target)
+	FSkateMoveInput Towards(const FSkateVec2& Pos, const FSkateVec2& Target, float Boost)
 	{
 		FSkateMoveInput In;
 		const FSkateVec2 Delta = Target - Pos;
 		const float Dist = Delta.Size();
 		In.Direction = Delta.GetSafeNormal(FSkateVec2(1.f, 0.f));
 		In.Magnitude = 1.f;
-		In.Boost = Dist > FSkateSkaterAI::BoostDistance ? FSkateSkaterAI::BoostAmount : 0.f;
+		In.Boost = Dist > FSkateSkaterAI::BoostDistance ? Boost : 0.f;
 		return In;
 	}
 }
@@ -84,16 +96,18 @@ const char* SkateSkaterModeName(ESkateSkaterMode Mode)
 	return "?";
 }
 
-FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, FSkateSkaterBrain& Brain, float Dt)
+FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const FSkateAITuning& Tuning, FSkateSkaterBrain& Brain, float Dt)
 {
 	using namespace SkateSkaterAIDetail;
 	FSkateSkaterDecision D;
+	auto Clamp = [&](const FSkateVec2& P) { return ClampToRink(P, View.RinkHalf, View.CornerRadius); };
+	auto Towards = [&](const FSkateVec2& Target) { return SkateSkaterAIDetail::Towards(View.Pos, Target, Tuning.BoostAmount); };
 	auto GoTo = [&](const FSkateVec2& Point, const FSkateVec2& LookAt)
 	{
-		D.Move = SkateSteer::GoTo(View.Pos, View.Vel, View.Heading, ClampToRink(Point, View.RinkHalf), LookAt);
+		D.Move = SkateSteer::GoTo(View.Pos, View.Vel, View.Heading, Clamp(Point), LookAt);
 		if ((Point - View.Pos).Size() > BoostDistance)
 		{
-			D.Move.Boost = BoostAmount;
+			D.Move.Boost = Tuning.BoostAmount;
 		}
 	};
 
@@ -107,7 +121,7 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, FSkateS
 	if (Brain.ChargeLeft >= 0.f)
 	{
 		Brain.ChargeLeft -= Dt;
-		D.Move = Towards(View.Pos, Brain.Aim);
+		D.Move = Towards(Brain.Aim);
 		D.Move.Boost = 0.f;
 		D.Mode = Brain.bChargingShot ? ESkateSkaterMode::Shoot : ESkateSkaterMode::Pass;
 		if (Brain.ChargeLeft < 0.f || View.BallOwner != ESkateBallOwner::Me)
@@ -125,15 +139,15 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, FSkateS
 	if (View.BallOwner == ESkateBallOwner::Me)
 	{
 		// Shoot: close enough and facing the goal. Aim at the far corner (the post away from my side).
-		if (GoalDist < ShootDistance && View.Heading.Dot(GoalDir) > std::cos(ShootFacingDeg * SkateMath::DegToRad))
+		if (GoalDist < Tuning.ShootDistance && View.Heading.Dot(GoalDir) > std::cos(ShootFacingDeg * SkateMath::DegToRad))
 		{
 			const FSkateVec2 Right = GoalDir.Right();
 			const float MySide = (View.Pos - View.AttackGoal).Dot(Right) >= 0.f ? 1.f : -1.f;
 			Brain.Aim = View.AttackGoal - Right * (MySide * View.GoalHalfWidth * 0.7f);
-			Brain.ChargeLeft = ShotCharge;
+			Brain.ChargeLeft = Tuning.ShotCharge;
 			Brain.bChargingShot = true;
 			D.Actions.bKickPressed = true;
-			D.Move = Towards(View.Pos, Brain.Aim);
+			D.Move = Towards(Brain.Aim);
 			D.Move.Boost = 0.f;
 			D.Mode = ESkateSkaterMode::Shoot;
 			return D;
@@ -150,7 +164,7 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, FSkateS
 				Brain.ChargeLeft = PassCharge;
 				Brain.bChargingShot = false;
 				D.Actions.bPushPressed = true;
-				D.Move = Towards(View.Pos, Brain.Aim);
+				D.Move = Towards(Brain.Aim);
 				D.Move.Boost = 0.f;
 				D.Mode = ESkateSkaterMode::Pass;
 				return D;
@@ -158,7 +172,7 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, FSkateS
 		}
 		// Carry the ball at the goal: aim for a point in front of it so the final approach is straight.
 		const FSkateVec2 ApproachDir = (View.AttackGoal - View.OwnGoal).GetSafeNormal(View.Heading);
-		D.Move = Towards(View.Pos, ClampToRink(View.AttackGoal - ApproachDir * 700.f, View.RinkHalf));
+		D.Move = Towards(Clamp(View.AttackGoal - ApproachDir * 700.f));
 		// An opponent right ahead: swerve around it instead of skating into it (and losing the ball).
 		if (View.bThreatValid)
 		{
@@ -217,8 +231,11 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, FSkateS
 		const float BallSpeed = View.BallVel.Size();
 		const float Lead = SkateMath::Clamp((View.BallPos - View.Pos).Size() / 700.f, 0.f, 1.f);
 		const FSkateVec2 Target = View.BallOwner == ESkateBallOwner::Nobody && BallSpeed > 50.f ? View.BallPos + View.BallVel * Lead : View.BallPos;
-		D.Move = Towards(View.Pos, ClampToRink(Target, View.RinkHalf));
+		D.Move = Towards(Clamp(Target));
 		D.Mode = View.BallOwner == ESkateBallOwner::Opponent ? ESkateSkaterMode::Press : ESkateSkaterMode::Chase;
+		// Pressing: the carrier is close and ahead -> body check.
+		const FSkateVec2 ToBall = View.BallPos - View.Pos;
+		D.bCheck = View.BallOwner == ESkateBallOwner::Opponent && ToBall.Size() < Tuning.CheckRange && View.Heading.Dot(ToBall.GetSafeNormal(View.Heading)) > 0.7f;
 		return D;
 	}
 

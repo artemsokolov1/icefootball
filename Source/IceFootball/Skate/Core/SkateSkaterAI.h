@@ -12,6 +12,7 @@
 #include "SkateBallControl.h"
 #include "SkateMath.h"
 #include "SkateModel.h"
+#include "SkateTuning.h"
 
 /** Shared steering primitives. */
 namespace SkateSteer
@@ -50,8 +51,9 @@ struct FSkateSkaterView
 	FSkateVec2 AttackGoal;
 	FSkateVec2 OwnGoal;
 	float GoalHalfWidth = 260.f;
-	/** Half size of the rink: targets are kept inside. */
+	/** Half size of the rink and its corner radius: targets are kept inside. */
 	FSkateVec2 RinkHalf = FSkateVec2(3000.f, 1500.f);
+	float CornerRadius = 850.f;
 
 	/** This skater is the one of its team nearest to the ball. */
 	bool bChaser = true;
@@ -91,20 +93,18 @@ struct FSkateSkaterDecision
 {
 	FSkateMoveInput Move;
 	FSkateBallActionInput Actions;
+	/** Press the check button this frame (pressing the carrier). */
+	bool bCheck = false;
 	ESkateSkaterMode Mode = ESkateSkaterMode::Wait;
 };
 
 class FSkateSkaterAI
 {
 public:
-	static FSkateSkaterDecision Think(const FSkateSkaterView& View, FSkateSkaterBrain& Brain, float Dt);
+	static FSkateSkaterDecision Think(const FSkateSkaterView& View, const FSkateAITuning& Tuning, FSkateSkaterBrain& Brain, float Dt);
 
-	/** Shoots from closer than this (cm to the goal line centre) ... */
-	static constexpr float ShootDistance = 1100.f;
-	/** ... while heading within this angle (deg) of the goal. */
+	/** Shoots (from Tuning.ShootDistance) while heading within this angle (deg) of the goal. */
 	static constexpr float ShootFacingDeg = 30.f;
-	/** Hold the kick button this long (s): a full shot (>= KickMaxChargeTime), the only kind that beats a keeper. */
-	static constexpr float ShotCharge = 0.85f;
 	static constexpr float PassCharge = 0.3f;
 	/** Pass when the teammate is this much nearer the goal (cm) and not farther than PassMaxDistance. */
 	static constexpr float PassAdvantage = 500.f;
@@ -123,7 +123,6 @@ public:
 	static constexpr float ReceiveRadius = 500.f;
 	static constexpr float ReceiveHorizon = 3.f;
 	static constexpr float ReceiveMinBallSpeed = 250.f;
-	/** Skate with boost when farther than this (cm) from the target. */
+	/** Skate with boost (Tuning.BoostAmount) when farther than this (cm) from the target. */
 	static constexpr float BoostDistance = 800.f;
-	static constexpr float BoostAmount = 0.5f;
 };

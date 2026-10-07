@@ -34,6 +34,10 @@ struct FSkateArenaLayout
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float BoardThickness = 30.f;
 
+	/** Corner radius (cm): hockey rinks have rounded corners (IIHF 8.5 m). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	float CornerRadius = 850.f;
+
 	/** Face-off: slot 0 of each team stands this far from the centre (X mirrored per team, team 0 at -X). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	FVector2D CentreSpawn = FVector2D(150.f, 0.f);
@@ -210,6 +214,8 @@ protected:
 private:
 	void BuildMaterials();
 	void BuildRink();
+	/** One straight piece of board (with its cap) centred at Center (ice level), Length along Yaw. */
+	void AddBoard(const FVector2D& Center, float Length, float Yaw);
 	void BuildMarkings();
 	void BuildTrainingCourse();
 	void BuildGoal(float Sign);

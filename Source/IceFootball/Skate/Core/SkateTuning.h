@@ -508,19 +508,28 @@ struct FSkateBallPhysicsTuning
 	bool bUseCCD = true;
 };
 
-/** Body checks between skaters of different teams (FSkateHit). Contact only, no button. */
+/** Body checks between skaters of different teams (FSkateHit). The check button (X without the ball)
+ *  opens a short window: contact with an opponent inside it is a hit. */
 USTRUCT(BlueprintType)
 struct FSkateHitTuning
 {
 	GENERATED_BODY()
 
+	/** After the check button the skater is "checking" this long (s): contact in that window hits. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
+	float CheckWindow = 0.35f;
+
+	/** The check button also lunges the skater forward: speed (cm/s) added along the heading. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
+	float LungeSpeed = 220.f;
+
 	/** The two skaters must close on each other at least this fast (cm/s, sum along the contact line). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
-	float MinClosingSpeed = 320.f;
+	float MinClosingSpeed = 150.f;
 
 	/** The hitter must skate at least this fast (cm/s) ... */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
-	float MinHitterSpeed = 300.f;
+	float MinHitterSpeed = 220.f;
 
 	/** ... and within this angle (deg) of the direction to the victim (a sideways brush is no check). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0", ClampMax = "90"))
@@ -541,6 +550,29 @@ struct FSkateHitTuning
 	/** No second check on either skater within this time (s). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit", meta = (ClampMin = "0"))
 	float Cooldown = 1.0f;
+};
+
+/** AI skaters (FSkateSkaterAI): the knobs that set the difficulty. */
+USTRUCT(BlueprintType)
+struct FSkateAITuning
+{
+	GENERATED_BODY()
+
+	/** Boost (0..1, RT equivalent) the AI uses on long skates. The player's full sprint is 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0", ClampMax = "1"))
+	float BoostAmount = 0.3f;
+
+	/** Shoots from closer than this (cm to the goal line centre). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "100"))
+	float ShootDistance = 1200.f;
+
+	/** Holds the kick button this long (s). KickMaxChargeTime (0.8) = full power, which beats any keeper. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0"))
+	float ShotCharge = 0.5f;
+
+	/** Pressing the carrier: the AI presses the check button when the ball is closer than this (cm) and ahead. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0"))
+	float CheckRange = 170.f;
 };
 
 /** NHL-style side camera (ASkateCameraRig): high on the stands, looks across the rink, slides along it. */
@@ -792,6 +824,9 @@ struct FSkateTuning
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Tuning")
 	FSkateHitTuning Hit;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Tuning")
+	FSkateAITuning AI;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tuning")
 	FSkateCameraTuning Camera;

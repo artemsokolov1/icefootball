@@ -65,6 +65,9 @@ public:
 	/** Shoved by a check: new velocity, no stick and no ball for Stun seconds. */
 	void ApplyHit(const FVector2D& NewVelocity, float Stun);
 	bool IsStunned() const { return StunLeft > 0.f; }
+	/** The check button: a short forward lunge and a window in which contact with an opponent is a hit. */
+	void StartCheck();
+	bool IsChecking() const { return CheckLeft > 0.f; }
 	/** Seconds since this skater delivered or took a check (HUD flash, cooldown). */
 	float GetTimeSinceHit() const { return TimeSinceHit; }
 
@@ -150,6 +153,8 @@ private:
 	FSkateStickResult LastStick;
 	FSkateFrameInput LastFrameInput;
 	float StunLeft = 0.f;
+	float CheckLeft = 0.f;
+	float TimeSinceCheck = 100.f;
 	float TimeSinceHit = 100.f;
 	float LastBrake = 0.f;
 	float LastBoost = 0.f;

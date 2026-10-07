@@ -262,7 +262,17 @@ FVector ASkateArena::GetBallSpawnLocation() const
 bool ASkateArena::IsInsideRink(const FVector& WorldLocation, float Margin) const
 {
 	const FVector Local = GetActorTransform().InverseTransformPosition(WorldLocation);
-	return FMath::Abs(Local.X) < Layout.RinkSize.X * 0.5f + Margin && FMath::Abs(Local.Y) < Layout.RinkSize.Y * 0.5f + Margin && Local.Z > -20.f;
+	const float HalfL = Layout.RinkSize.X * 0.5f;
+	const float HalfW = Layout.RinkSize.Y * 0.5f;
+	if (FMath::Abs(Local.X) >= HalfL + Margin || FMath::Abs(Local.Y) >= HalfW + Margin || Local.Z <= -20.f)
+	{
+		return false;
+	}
+	// Rounded corner: inside the arc.
+	const float R = Layout.CornerRadius;
+	const float Dx = FMath::Abs(Local.X) - (HalfL - R);
+	const float Dy = FMath::Abs(Local.Y) - (HalfW - R);
+	return Dx <= 0.f || Dy <= 0.f || Dx * Dx + Dy * Dy < (R + Margin) * (R + Margin);
 }
 
 void ASkateArena::ResetScene()
@@ -359,35 +369,57 @@ UStaticMeshComponent* ASkateArena::AddBox(const FVector& Center, const FVector& 
 	return Box;
 }
 
+void ASkateArena::AddBoard(const FVector2D& Center, float Length, float Yaw)
+{
+	using namespace SkateArenaDetail;
+	const float T = Layout.BoardThickness;
+	const float H = Layout.BoardHeight;
+	UStaticMeshComponent* Board = AddBox(FVector(Center.X, Center.Y, H * 0.5f), FVector(Length, T, H), BoardColor, BoardMaterial, Yaw);
+	Board->ComponentTags.Add(BoardTag());
+	const float CapH = 6.f;
+	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(
+		FTransform(FRotator(0.f, Yaw, 0.f), FVector(Center.X, Center.Y, H + CapH * 0.5f), FVector(Length, T, CapH) / 100.f));
+}
+
 void ASkateArena::BuildRink()
 {
 	using namespace SkateArenaDetail;
 	const float L = Layout.RinkSize.X;
 	const float W = Layout.RinkSize.Y;
 	const float T = Layout.BoardThickness;
-	const float H = Layout.BoardHeight;
+	const float R = FMath::Clamp(Layout.CornerRadius, 0.f, FMath::Min(L, W) * 0.5f);
 
 	// Ice: top surface at z = 0.
 	UStaticMeshComponent* Ice = AddBox(FVector(0.f, 0.f, -IceThickness * 0.5f), FVector(L + 2.f * T + 400.f, W + 2.f * T + 400.f, IceThickness), IceColor, IceMaterial);
 	Ice->SetCastShadow(false);
 
-	// Boards with a coloured cap so the edge reads from above.
+	// Straight boards between the corners (the board sits outside the inner rink: centre at half size + T/2).
 	const FVector2D Half(L * 0.5f + T * 0.5f, W * 0.5f + T * 0.5f);
-	UStaticMeshComponent* Boards[] = {
-		AddBox(FVector(Half.X, 0.f, H * 0.5f), FVector(T, W + 2.f * T, H), BoardColor, BoardMaterial),
-		AddBox(FVector(-Half.X, 0.f, H * 0.5f), FVector(T, W + 2.f * T, H), BoardColor, BoardMaterial),
-		AddBox(FVector(0.f, Half.Y, H * 0.5f), FVector(L, T, H), BoardColor, BoardMaterial),
-		AddBox(FVector(0.f, -Half.Y, H * 0.5f), FVector(L, T, H), BoardColor, BoardMaterial),
-	};
-	for (UStaticMeshComponent* Board : Boards)
+	AddBoard(FVector2D(Half.X, 0.f), W - 2.f * R, 90.f);
+	AddBoard(FVector2D(-Half.X, 0.f), W - 2.f * R, 90.f);
+	AddBoard(FVector2D(0.f, Half.Y), L - 2.f * R, 0.f);
+	AddBoard(FVector2D(0.f, -Half.Y), L - 2.f * R, 0.f);
+
+	// Rounded corners: each quarter circle as short straight pieces tangent to the arc.
+	const int32 Segments = 10;
+	const float Step = 90.f / Segments;
+	const float Chord = 2.f * (R + T * 0.5f) * FMath::Sin(FMath::DegreesToRadians(Step * 0.5f)) + 4.f; // small overlap, no gaps
+	for (const float Sx : { -1.f, 1.f })
 	{
-		Board->ComponentTags.Add(BoardTag());
+		for (const float Sy : { -1.f, 1.f })
+		{
+			const FVector2D CornerCentre(Sx * (L * 0.5f - R), Sy * (W * 0.5f - R));
+			for (int32 Index = 0; Index < Segments; ++Index)
+			{
+				// Angle of the piece's midpoint, measured in the corner's quadrant.
+				const float Angle = FMath::DegreesToRadians((Index + 0.5f) * Step);
+				const FVector2D Radial(Sx * FMath::Cos(Angle), Sy * FMath::Sin(Angle));
+				const FVector2D Center = CornerCentre + Radial * (R + T * 0.5f);
+				const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(Radial.Y, Radial.X)) + 90.f; // tangent
+				AddBoard(Center, Chord, Yaw);
+			}
+		}
 	}
-	const float CapH = 6.f;
-	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(FTransform(FRotator::ZeroRotator, FVector(Half.X, 0.f, H + CapH * 0.5f), FVector(T, W + 2.f * T, CapH) / 100.f));
-	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(FTransform(FRotator::ZeroRotator, FVector(-Half.X, 0.f, H + CapH * 0.5f), FVector(T, W + 2.f * T, CapH) / 100.f));
-	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(FTransform(FRotator::ZeroRotator, FVector(0.f, Half.Y, H + CapH * 0.5f), FVector(L, T, CapH) / 100.f));
-	SkateVisuals::AddPart(this, Root, TEXT("Cube"), BoardCapColor)->SetRelativeTransform(FTransform(FRotator::ZeroRotator, FVector(0.f, -Half.Y, H + CapH * 0.5f), FVector(L, T, CapH) / 100.f));
 }
 
 UStaticMeshComponent* ASkateArena::AddMarkLine(const FVector2D& A, const FVector2D& B, float Width, const FLinearColor& Color)

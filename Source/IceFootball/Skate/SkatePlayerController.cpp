@@ -544,6 +544,7 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 	View.OwnGoal = Own.Center;
 	View.GoalHalfWidth = Attack.HalfWidth;
 	View.RinkHalf = To2D(FVector(Arena->GetLayout().RinkSize * 0.5f, 0.f));
+	View.CornerRadius = Arena->GetLayout().CornerRadius;
 	View.bChaser = bChaser;
 	if (Mate)
 	{
@@ -564,13 +565,17 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 		}
 	}
 
-	FSkateSkaterDecision Decision = FSkateSkaterAI::Think(View, Brain, GetWorld()->GetDeltaSeconds());
+	FSkateSkaterDecision Decision = FSkateSkaterAI::Think(View, Skater->GetActiveTuning().AI, Brain, GetWorld()->GetDeltaSeconds());
 	if (Arena->IsGoalPause())
 	{
 		Decision = FSkateSkaterDecision();
 		Decision.Move.Brake = 1.f;
 	}
 	Skater->ApplyMoveInput(Decision.Move, &Decision.Actions);
+	if (Decision.bCheck)
+	{
+		Skater->StartCheck();
+	}
 	if (Mode != static_cast<uint8>(Decision.Mode))
 	{
 		Mode = static_cast<uint8>(Decision.Mode);

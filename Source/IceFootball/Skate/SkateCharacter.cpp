@@ -160,8 +160,29 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 
 	if (BallControl)
 	{
-		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed, Input.bKickReleased);
+		// X with the ball at the feet or in reach: a shot. X otherwise: a body check.
+		const ESkateContactReason Reach = BallControl->GetReport().Reason;
+		const bool bBallPlayable = BallControl->HasBall() || Reach == ESkateContactReason::Reachable || Reach == ESkateContactReason::ActionReachOnly;
+		if (Input.bKickPressed && !bBallPlayable)
+		{
+			StartCheck();
+		}
+		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed && bBallPlayable, Input.bKickReleased);
 	}
+}
+
+void ASkateCharacter::StartCheck()
+{
+	const FSkateHitTuning& HT = GetActiveTuning().Hit;
+	if (IsStunned() || TimeSinceCheck < HT.Cooldown || !SkateMovement)
+	{
+		return;
+	}
+	CheckLeft = HT.CheckWindow;
+	TimeSinceCheck = 0.f;
+	const FSkateVec2 Heading = SkateMovement->GetSkateState().Heading;
+	SkateMovement->Velocity.X += Heading.X * HT.LungeSpeed;
+	SkateMovement->Velocity.Y += Heading.Y * HT.LungeSpeed;
 }
 
 void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input, const FSkateBallActionInput* Actions)
@@ -216,8 +237,8 @@ void ASkateCharacter::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 		return;
 	}
 	auto To2D = [](const FVector& V) { return FSkateVec2(static_cast<float>(V.X), static_cast<float>(V.Y)); };
-	const FSkateHitResult Result = FSkateHit::Resolve(HT, To2D(GetActorLocation()), To2D(SkateMovement->Velocity),
-		To2D(Rival->GetActorLocation()), To2D(Rival->SkateMovement->Velocity));
+	const FSkateHitResult Result = FSkateHit::Resolve(HT, To2D(GetActorLocation()), To2D(SkateMovement->Velocity), IsChecking(),
+		To2D(Rival->GetActorLocation()), To2D(Rival->SkateMovement->Velocity), Rival->IsChecking());
 	if (!Result.bHit)
 	{
 		return;
@@ -227,6 +248,7 @@ void ASkateCharacter::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 	Hitter->SkateMovement->Velocity.X = Result.HitterVelocity.X;
 	Hitter->SkateMovement->Velocity.Y = Result.HitterVelocity.Y;
 	Hitter->TimeSinceHit = 0.f;
+	Hitter->CheckLeft = 0.f;
 	Victim->ApplyHit(FVector2D(Result.VictimVelocity.X, Result.VictimVelocity.Y), HT.StunTime);
 	UE_LOG(LogIceSkate, Verbose, TEXT("CHECK: team %d slot %d hits team %d slot %d, victim shoved at %.0f cm/s"), Hitter->Team, Hitter->TeamSlot,
 		Victim->Team, Victim->TeamSlot, Result.VictimVelocity.Size());
@@ -252,6 +274,8 @@ void ASkateCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	StunLeft = FMath::Max(0.f, StunLeft - DeltaSeconds);
+	CheckLeft -= DeltaSeconds;
+	TimeSinceCheck += DeltaSeconds;
 	TimeSinceHit += DeltaSeconds;
 	if (bDebugEnabled)
 	{
