@@ -34,6 +34,14 @@ public:
 
 	void ResetControl();
 
+	/** Drops a pass / shot wind-up and pending buttons (control switched to the other skater). */
+	void CancelActions();
+
+	/** Ball possessions so far (increments on every trap) - used to switch control to a skater that just got the ball. */
+	int32 GetAcquireCount() const { return ControlState.Possession.AcquireCount; }
+	/** Gameplay impulses so far (pass / shot / touch / block). */
+	int32 GetImpulseCount() const { return ControlState.ImpulseCount; }
+
 	ASkateBall* GetBall() const { return Ball.Get(); }
 	const FSkateContactReport& GetReport() const { return Report; }
 	const FSkateBallControlState& GetControlState() const { return ControlState; }

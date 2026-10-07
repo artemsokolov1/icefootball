@@ -3,6 +3,7 @@
 #include "SkateCoreTests.h"
 #include "SkateCourseTests.h"
 #include "SkatePoseTests.h"
+#include "SkateTeamTests.h"
 
 #include <cstdio>
 
@@ -11,6 +12,7 @@ int main()
 	std::vector<FSkateTestResult> Results = RunSkateCoreTests();
 	RunSkateCourseTests(Results);
 	RunSkatePoseTests(Results);
+	RunSkateTeamTests(Results);
 	int Failed = 0;
 	for (const FSkateTestResult& R : Results)
 	{

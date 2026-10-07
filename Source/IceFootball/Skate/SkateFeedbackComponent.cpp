@@ -8,6 +8,7 @@
 #include "Skate/SkateBallControlComponent.h"
 #include "Skate/SkateCharacter.h"
 #include "Skate/SkateMovementComponent.h"
+#include "Skate/SkatePlayerController.h"
 #include "Skate/SkaterPuppetComponent.h"
 #include "Skate/SkateVisuals.h"
 
@@ -107,8 +108,9 @@ void USkateFeedbackComponent::Rumble(float Intensity, float Duration)
 	{
 		return;
 	}
-	const APawn* Pawn = Cast<APawn>(GetOwner());
-	if (APlayerController* Pc = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr)
+	// Only the skater the player controls right now rumbles the pad (the teammate has no controller of its own).
+	ASkatePlayerController* Pc = Cast<ASkatePlayerController>(GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr);
+	if (Pc && Pc->GetSkater() == GetOwner())
 	{
 		Pc->PlayDynamicForceFeedback(FMath::Clamp(Intensity, 0.f, 1.f), Duration, true, true, true, true);
 	}

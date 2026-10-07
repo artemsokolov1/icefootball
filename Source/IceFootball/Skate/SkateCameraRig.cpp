@@ -31,10 +31,18 @@ ASkateCameraRig::ASkateCameraRig()
 	Camera->bConstrainAspectRatio = false;
 }
 
-void ASkateCameraRig::SetTarget(AActor* InTarget)
+void ASkateCameraRig::SetTarget(AActor* InTarget, bool bBlend)
 {
+	const FVector OldLocation = GetActorLocation();
+	const bool bHadTarget = Target.IsValid();
 	Target = InTarget;
 	SnapToTarget();
+	// Keep the old view for this frame and let the difference fade out.
+	BlendOffset = bBlend && bHadTarget ? OldLocation - GetActorLocation() : FVector::ZeroVector;
+	if (!BlendOffset.IsZero())
+	{
+		SetActorLocation(GetActorLocation() + BlendOffset);
+	}
 }
 
 void ASkateCameraRig::SetStaticMode(bool bInStatic)
@@ -45,6 +53,7 @@ void ASkateCameraRig::SetStaticMode(bool bInStatic)
 
 void ASkateCameraRig::SnapToTarget()
 {
+	BlendOffset = FVector::ZeroVector;
 	LookAhead = FVector2D::ZeroVector;
 	LookAheadVelocity = FVector2D::ZeroVector;
 	UpdateCamera(0.f);
@@ -95,5 +104,9 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 	const FVector TargetLoc = TargetActor->GetActorLocation();
 	const FVector Focus(TargetLoc.X + LookAhead.X, TargetLoc.Y + LookAhead.Y, TargetLoc.Z - 92.f + FocusHeight);
 	const FRotator Rotation(Tuning.Pitch, Tuning.Yaw, 0.f);
-	SetActorLocationAndRotation(Focus - Rotation.Vector() * Tuning.Distance, Rotation);
+	if (DeltaSeconds > 0.f)
+	{
+		BlendOffset *= FMath::Exp(-7.f * DeltaSeconds); // ~0.4 s to settle on a new skater
+	}
+	SetActorLocationAndRotation(Focus - Rotation.Vector() * Tuning.Distance + BlendOffset, Rotation);
 }

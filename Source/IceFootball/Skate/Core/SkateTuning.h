@@ -225,6 +225,11 @@ struct FSkatePossessionTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
 	float AcquireMaxRelSpeed = 1200.f;
 
+	/** A pass (from a teammate or the keeper's throw) can be received up to this relative speed (cm/s):
+	 *  a firm pass is cushioned instead of bouncing off. Shots keep the AcquireMaxRelSpeed limit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
+	float PassReceiveMaxRelSpeed = 2600.f;
+
 	/** No re-trap for this long (s) after the skater's own push or kick, so the ball can leave the feet. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
 	float AcquireCooldownAfterAction = 0.4f;
@@ -626,6 +631,84 @@ struct FSkateFeedbackTuning
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback", meta = (ClampMin = "0", ClampMax = "1"))
 	float TouchRumble = 0.0f;
+};
+
+/** Goalkeeper (AI): positioning, reactions, dive and save rules. Owned by ASkateGoalkeeper. */
+USTRUCT(BlueprintType)
+struct FSkateKeeperTuning
+{
+	GENERATED_BODY()
+
+	/** The keeper stands this far (cm) in front of the goal line. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float LineOffset = 55.f;
+
+	/** Sideways shuffle along the goal: top speed (cm/s) and acceleration (cm/s^2). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float MaxShuffleSpeed = 420.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ShuffleAccel = 3000.f;
+
+	/** Time (s) between a shot and the keeper's first reaction to it. Lower = harder to score. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ReactionTime = 0.15f;
+
+	/** Half width of the body (cm): always covered while standing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float BodyHalfWidth = 28.f;
+
+	/** Sideways hand reach while standing (cm from the keeper's centre) and how high the hands reach. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float StandReach = 65.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float StandReachHeight = 205.f;
+
+	/** Extra sideways reach (cm) of a full dive, the time (s) to get there and to get up again. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float DiveReach = 160.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0.05"))
+	float DiveTime = 0.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float DiveRecoverTime = 0.8f;
+
+	/** How high (cm) the hands still reach at the far end of a full dive: high corners beat a diving keeper. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float DiveLowHeight = 95.f;
+
+	/** Balls slower than this (cm/s) close to the body are caught and held instead of parried. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float CatchMaxSpeed = 1400.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float CatchHalfWidth = 45.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float CatchMaxHeight = 170.f;
+
+	/** Parry: fraction of the shot speed sent back out, sideways speed (cm/s) away from the goal, lift (cm/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0", ClampMax = "1"))
+	float ParryRestitution = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ParryWideSpeed = 450.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ParryLift = 220.f;
+
+	/** A caught ball is held this long (s), then rolled out to the controlled skater at ThrowSpeed (cm/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float HoldTime = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float ThrowSpeed = 1100.f;
+
+	/** Gravity used to predict lofted shots (cm/s^2, UE default 980). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "1"))
+	float Gravity = 980.f;
 };
 
 /** The complete tuning set. One preset = one FSkateTuning. */

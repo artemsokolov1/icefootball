@@ -91,7 +91,54 @@ FVector ASkateBall::GetBallVelocity() const
 	return BallMesh->GetPhysicsLinearVelocity();
 }
 
-void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind)
+void ASkateBall::ClearHolder(const UObject* InHolder)
+{
+	if (Holder.Get() == InHolder)
+	{
+		Holder.Reset();
+	}
+}
+
+bool ASkateBall::IsHeldByOther(const UObject* Who) const
+{
+	const UObject* Current = Holder.Get();
+	return Current != nullptr && Current != Who;
+}
+
+void ASkateBall::HoldAt(const FVector& Location)
+{
+	if (!bHeldInHands)
+	{
+		bHeldInHands = true;
+		SetCarried(false);
+		BallMesh->SetEnableGravity(false);
+	}
+	SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	BallMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
+	BallMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+}
+
+void ASkateBall::ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source)
+{
+	bHeldInHands = false;
+	BallMesh->SetEnableGravity(true);
+	SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	BallMesh->WakeRigidBody();
+	ApplyGameplayVelocity(Velocity, ESkateImpulseKind::Push, Source);
+}
+
+float ASkateBall::GetTimeSinceGameplayImpulse() const
+{
+	const UWorld* World = GetWorld();
+	return World ? static_cast<float>(World->GetTimeSeconds() - LastImpulseTime) : 100.f;
+}
+
+bool ASkateBall::IsPassFor(const UObject* Receiver) const
+{
+	return LastImpulseKind == ESkateImpulseKind::Push && LastImpulseSource.Get() != Receiver && GetTimeSinceGameplayImpulse() < 6.f;
+}
+
+void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source)
 {
 	const double Now = GetWorld()->GetTimeSeconds();
 	const double Gap = Now - LastImpulseTime;
@@ -103,6 +150,8 @@ void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulse
 		UE_LOG(LogIceSkate, Warning, TEXT("DOUBLE IMPULSE on ball: %s %.3f s after the previous one"), ANSI_TO_TCHAR(SkateImpulseKindName(Kind)), Gap);
 	}
 	LastImpulseTime = Now;
+	LastImpulseKind = Kind;
+	LastImpulseSource = Source;
 	++GameplayImpulses;
 
 	BallMesh->SetPhysicsLinearVelocity(NewVelocity);
@@ -132,6 +181,11 @@ void ASkateBall::SetCarriedVelocity(const FVector& NewVelocity)
 void ASkateBall::ResetBall(const FVector& Location)
 {
 	SetCarried(false);
+	Holder.Reset();
+	bHeldInHands = false;
+	BallMesh->SetEnableGravity(true);
+	LastImpulseKind = ESkateImpulseKind::None;
+	LastImpulseSource.Reset();
 	SetActorLocationAndRotation(Location, FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
 	BallMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
 	BallMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
@@ -151,7 +205,7 @@ void ASkateBall::Tick(float DeltaSeconds)
 	const FVector Velocity = BallMesh->GetPhysicsLinearVelocity();
 	const float Height = static_cast<float>(GetActorLocation().Z) - Tuning.Radius - IceZ;
 	bGrounded = Height < GroundTolerance && FMath::Abs(Velocity.Z) < GroundVerticalSpeed;
-	if (!bGrounded || bCarried)
+	if (!bGrounded || bCarried || bHeldInHands)
 	{
 		return; // in the air only gravity + damping act; a carried ball is steered by the skater
 	}

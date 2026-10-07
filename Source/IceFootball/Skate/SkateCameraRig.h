@@ -24,7 +24,8 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 
-	void SetTarget(AActor* InTarget);
+	/** bBlend: glide over to the new target (switching skaters) instead of cutting. */
+	void SetTarget(AActor* InTarget, bool bBlend = false);
 	void SetStaticFocus(const FVector& InFocus) { StaticFocus = InFocus; }
 	void SetStaticMode(bool bInStatic);
 	bool IsStaticMode() const { return bStaticMode; }
@@ -52,4 +53,6 @@ private:
 	FVector2D LookAhead = FVector2D::ZeroVector;
 	FVector2D LookAheadVelocity = FVector2D::ZeroVector;
 	float FovKick = 0.f;
+	/** Remaining camera offset after a blended target switch; decays to zero. */
+	FVector BlendOffset = FVector::ZeroVector;
 };

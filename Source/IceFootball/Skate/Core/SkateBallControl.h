@@ -41,6 +41,7 @@ enum class ESkateImpulseKind : unsigned char
 	Push,
 	Kick,
 	BodyBlock,
+	Save,      // the goalkeeper's parry / throw-out (not a skater impulse)
 };
 
 const char* SkateImpulseKindName(ESkateImpulseKind Kind);
@@ -53,6 +54,7 @@ enum class ESkatePossessionLoss : unsigned char
 	Blocked,   // held back by a wall or obstacle
 	Airborne,  // bounced up
 	Disabled,  // interaction switched off / reset
+	Taken,     // someone else (the keeper) took the ball
 };
 
 const char* SkatePossessionLossName(ESkatePossessionLoss Loss);
@@ -92,6 +94,13 @@ struct FSkateContactQuery
 	/** False when a trace from the skater to the ball hits a wall (no touching through boards). */
 	bool bLineOfSightClear = true;
 	bool bInteractionEnabled = true;
+
+	/** Another player (teammate / keeper) holds the ball: no trap, no touch, no impulse from this skater. */
+	bool bBallHeldByOther = false;
+	/** Time (s) since ANY gameplay impulse on the ball (other skaters, keeper): one impulse per frame overall. */
+	float BallTimeSinceImpulse = 100.f;
+	/** The ball is a pass (its last impulse was a push / throw-out from someone else): may be received firmer. */
+	bool bIncomingPass = false;
 
 	/** Boards near the skater: the carried ball is kept in front of them instead of being pressed in. */
 	static constexpr int MaxWalls = 4;
@@ -223,6 +232,9 @@ public:
 	static FSkateBallImpulse Update(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query,
 		const FSkateBallActionInput& Actions, float Dt, FSkateBallControlState& State, FSkateContactReport& OutReport,
 		FSkateBallCarry* OutCarry = nullptr);
+
+	/** Cancels a pass / shot wind-up in progress and pending buffers (control switched to another skater). */
+	static void CancelActions(FSkateBallControlState& State);
 
 	/** Drops possession (scene reset, interaction off). */
 	static void ReleasePossession(FSkateBallControlState& State, ESkatePossessionLoss Reason);

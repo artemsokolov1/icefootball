@@ -4,15 +4,20 @@
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 #include "IceFootball.h"
+#include "Skate/Core/SkateTeamAI.h"
 #include "Skate/SkateArena.h"
+#include "Skate/SkateBall.h"
+#include "Skate/SkateBallControlComponent.h"
 #include "Skate/SkateCameraRig.h"
 #include "Skate/SkateCharacter.h"
+#include "Skate/SkateMovementComponent.h"
 
 namespace SkatePlayerControllerDetail
 {
@@ -20,6 +25,9 @@ namespace SkatePlayerControllerDetail
 	constexpr int32 NumFpsCaps = UE_ARRAY_COUNT(FpsCaps);
 	// Keyboard only wins when the stick is inside this radius (so a resting stick never blocks the keys).
 	constexpr float StickIdleRadius = 0.12f;
+	// Auto-switch on a pass: the teammate must be within this angle (deg) of the pass and this distance (cm).
+	constexpr float PassSwitchAngle = 35.f;
+	constexpr float PassSwitchRange = 3500.f;
 }
 
 ASkatePlayerController::ASkatePlayerController()
@@ -124,6 +132,10 @@ void ASkatePlayerController::BuildInputMappings()
 	Imc->MapKey(IA_ToggleBall, EKeys::Gamepad_Special_Right);
 	Imc->MapKey(IA_ToggleBall, EKeys::F4);
 
+	IA_Switch = MakeAction(TEXT("IA_Skate_SwitchSkater"), EInputActionValueType::Boolean);
+	Imc->MapKey(IA_Switch, EKeys::Gamepad_LeftShoulder);
+	Imc->MapKey(IA_Switch, EKeys::Q);
+
 	IA_PresetNext = MakeAction(TEXT("IA_Skate_PresetNext"), EInputActionValueType::Boolean);
 	Imc->MapKey(IA_PresetNext, EKeys::Gamepad_DPad_Right);
 	IA_PresetPrev = MakeAction(TEXT("IA_Skate_PresetPrev"), EInputActionValueType::Boolean);
@@ -170,6 +182,7 @@ void ASkatePlayerController::SetupInputComponent()
 	Eic->BindAction(IA_Camera, ETriggerEvent::Started, this, &ASkatePlayerController::OnToggleCamera);
 	Eic->BindAction(IA_FpsCap, ETriggerEvent::Started, this, &ASkatePlayerController::OnCycleFpsCap);
 	Eic->BindAction(IA_ToggleBall, ETriggerEvent::Started, this, &ASkatePlayerController::OnToggleBall);
+	Eic->BindAction(IA_Switch, ETriggerEvent::Started, this, &ASkatePlayerController::OnSwitchSkater);
 	Eic->BindAction(IA_PresetNext, ETriggerEvent::Started, this, &ASkatePlayerController::OnPresetNext);
 	Eic->BindAction(IA_PresetPrev, ETriggerEvent::Started, this, &ASkatePlayerController::OnPresetPrev);
 	Eic->BindAction(IA_Preset1, ETriggerEvent::Started, this, &ASkatePlayerController::OnPreset1);
@@ -228,17 +241,237 @@ void ASkatePlayerController::OnPossess(APawn* InPawn)
 		CameraRig->SetTarget(InPawn);
 		SetViewTarget(CameraRig);
 	}
+	Team.Reset();
+	RefreshTeam();
 }
 
 ASkateCharacter* ASkatePlayerController::GetSkater() const
 {
+	if (Team.IsValidIndex(ActiveIndex))
+	{
+		if (ASkateCharacter* Active = Team[ActiveIndex].Get())
+		{
+			return Active;
+		}
+	}
 	return Cast<ASkateCharacter>(GetPawn());
+}
+
+FString ASkatePlayerController::GetTeammateModeName() const
+{
+	return FString(ANSI_TO_TCHAR(SkateTeammateModeName(static_cast<ESkateTeammateMode>(TeammateMode))));
+}
+
+void ASkatePlayerController::RefreshTeam()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	int32 Found = 0;
+	for (TActorIterator<ASkateCharacter> It(World); It; ++It)
+	{
+		++Found;
+	}
+	bool bAllValid = true;
+	for (const TWeakObjectPtr<ASkateCharacter>& Member : Team)
+	{
+		bAllValid &= Member.IsValid();
+	}
+	if (bAllValid && Found == Team.Num())
+	{
+		return;
+	}
+
+	ASkateCharacter* Active = Team.IsValidIndex(ActiveIndex) ? Team[ActiveIndex].Get() : nullptr;
+	if (!Active)
+	{
+		Active = Cast<ASkateCharacter>(GetPawn());
+	}
+	TArray<ASkateCharacter*> Skaters;
+	for (TActorIterator<ASkateCharacter> It(World); It; ++It)
+	{
+		Skaters.Add(*It);
+	}
+	Skaters.StableSort([](const ASkateCharacter& A, const ASkateCharacter& B) { return A.GetTeamSlot() < B.GetTeamSlot(); });
+	Team.Reset();
+	SeenAcquires.Reset();
+	SeenImpulses.Reset();
+	ActiveIndex = 0;
+	for (ASkateCharacter* Skater : Skaters)
+	{
+		if (Skater == Active)
+		{
+			ActiveIndex = Team.Num();
+		}
+		Team.Add(Skater);
+		const USkateBallControlComponent* Ball = Skater->GetBallControl();
+		SeenAcquires.Add(Ball ? Ball->GetAcquireCount() : 0);
+		SeenImpulses.Add(Ball ? Ball->GetImpulseCount() : 0);
+		if (Skater != GetPawn())
+		{
+			// Input is applied to the teammate in PlayerTick: its movement must tick after this controller.
+			AddPawnTickDependency(Skater);
+		}
+	}
+}
+
+void ASkatePlayerController::SwitchTo(int32 Index)
+{
+	if (!Team.IsValidIndex(Index) || Index == ActiveIndex)
+	{
+		return;
+	}
+	ASkateCharacter* Next = Team[Index].Get();
+	if (!Next)
+	{
+		return;
+	}
+	if (ASkateCharacter* Previous = GetSkater())
+	{
+		Previous->CancelBallActions();
+	}
+	ActiveIndex = Index;
+	bPushEdge = false;
+	bPushReleaseEdge = false;
+	bKickPressEdge = false;
+	bKickReleaseEdge = false;
+	if (CameraRig)
+	{
+		CameraRig->SetTarget(Next, /*bBlend*/ true);
+	}
+}
+
+void ASkatePlayerController::UpdateAutoSwitch()
+{
+	using namespace SkatePlayerControllerDetail;
+	int32 Target = INDEX_NONE;
+	for (int32 Index = 0; Index < Team.Num(); ++Index)
+	{
+		const ASkateCharacter* Skater = Team[Index].Get();
+		const USkateBallControlComponent* Ball = Skater ? Skater->GetBallControl() : nullptr;
+		if (!Ball || !SeenAcquires.IsValidIndex(Index))
+		{
+			continue;
+		}
+		const bool bNewAcquire = Ball->GetAcquireCount() != SeenAcquires[Index];
+		const bool bNewImpulse = Ball->GetImpulseCount() != SeenImpulses[Index];
+		SeenAcquires[Index] = Ball->GetAcquireCount();
+		SeenImpulses[Index] = Ball->GetImpulseCount();
+		if (!bAutoSwitch)
+		{
+			continue;
+		}
+		// The teammate got the ball: take it over.
+		if (Index != ActiveIndex && bNewAcquire && Ball->HasBall())
+		{
+			Target = Index;
+		}
+		// The player just passed: take over the teammate the pass goes to.
+		if (Index == ActiveIndex && bNewImpulse && Ball->GetLastImpulse().Kind == ESkateImpulseKind::Push && Target == INDEX_NONE)
+		{
+			const FVector2D Dir(Ball->GetLastImpulse().Direction.X, Ball->GetLastImpulse().Direction.Y);
+			float BestCos = FMath::Cos(FMath::DegreesToRadians(PassSwitchAngle));
+			for (int32 Mate = 0; Mate < Team.Num(); ++Mate)
+			{
+				const ASkateCharacter* Receiver = Team[Mate].Get();
+				if (Mate == Index || !Receiver)
+				{
+					continue;
+				}
+				const FVector2D To = FVector2D(Receiver->GetActorLocation() - Skater->GetActorLocation());
+				const float Dist = static_cast<float>(To.Size());
+				const float Cos = Dist > 1.f ? static_cast<float>(FVector2D::DotProduct(To / Dist, Dir)) : 0.f;
+				if (Dist < PassSwitchRange && Cos > BestCos)
+				{
+					BestCos = Cos;
+					Target = Mate;
+				}
+			}
+		}
+	}
+	if (Target != INDEX_NONE)
+	{
+		SwitchTo(Target);
+	}
+}
+
+void ASkatePlayerController::SyncTeamSettings()
+{
+	// Preset, debug view and ball interaction are toggled on the active skater; the teammate follows.
+	const ASkateCharacter* Active = GetSkater();
+	if (!Active)
+	{
+		return;
+	}
+	for (const TWeakObjectPtr<ASkateCharacter>& Member : Team)
+	{
+		ASkateCharacter* Mate = Member.Get();
+		if (!Mate || Mate == Active)
+		{
+			continue;
+		}
+		if (Mate->GetPreset() != Active->GetPreset())
+		{
+			Mate->SetPreset(Active->GetPreset());
+		}
+		if (Mate->IsDebugEnabled() != Active->IsDebugEnabled())
+		{
+			Mate->SetDebugEnabled(Active->IsDebugEnabled());
+		}
+		if (Mate->IsBallInteractionEnabled() != Active->IsBallInteractionEnabled())
+		{
+			Mate->SetBallInteractionEnabled(Active->IsBallInteractionEnabled());
+		}
+	}
+}
+
+void ASkatePlayerController::DriveTeammates()
+{
+	const ASkateArena* Arena = CachedArena.Get();
+	const ASkateBall* Ball = Arena ? Arena->GetBall() : nullptr;
+	for (int32 Index = 0; Index < Team.Num(); ++Index)
+	{
+		ASkateCharacter* Mate = Team[Index].Get();
+		if (Index == ActiveIndex || !Mate)
+		{
+			continue;
+		}
+		const USkateBallControlComponent* MateBall = Mate->GetBallControl();
+		FSkateTeammateView View;
+		const FVector Loc = Mate->GetActorLocation();
+		const FVector Vel = Mate->GetVelocity();
+		View.Pos = FSkateVec2(static_cast<float>(Loc.X), static_cast<float>(Loc.Y));
+		View.Vel = FSkateVec2(static_cast<float>(Vel.X), static_cast<float>(Vel.Y));
+		View.Heading = Mate->GetSkateMovement()->GetSkateState().Heading;
+		View.bHasBall = MateBall && MateBall->HasBall();
+		if (Ball)
+		{
+			const FVector BallLoc = Ball->GetActorLocation();
+			const FVector BallVel = Ball->GetBallVelocity();
+			View.bBallValid = true;
+			View.BallPos = FSkateVec2(static_cast<float>(BallLoc.X), static_cast<float>(BallLoc.Y));
+			View.BallVel = FSkateVec2(static_cast<float>(BallVel.X), static_cast<float>(BallVel.Y));
+			View.bBallHeld = Ball->IsHeldByOther(MateBall);
+		}
+		ESkateTeammateMode Mode = ESkateTeammateMode::Wait;
+		Mate->ApplyMoveInput(FSkateTeammateAI::Think(View, &Mode));
+		TeammateMode = static_cast<uint8>(Mode);
+	}
 }
 
 void ASkatePlayerController::PlayerTick(float DeltaTime)
 {
 	// Processes input first: the handlers below update the stored values / edges.
 	Super::PlayerTick(DeltaTime);
+
+	if (!CachedArena.IsValid())
+	{
+		CachedArena = ASkateArena::Find(GetWorld());
+	}
+	RefreshTeam();
+	UpdateAutoSwitch();
 
 	ASkateCharacter* Skater = GetSkater();
 	if (Skater)
@@ -286,6 +519,9 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 	bPushReleaseEdge = false;
 	bKickPressEdge = false;
 	bKickReleaseEdge = false;
+
+	SyncTeamSettings();
+	DriveTeammates();
 }
 
 // ---- Axis handlers ----
@@ -368,7 +604,7 @@ void ASkatePlayerController::OnReset(const FInputActionValue& Value)
 {
 	if (ASkateArena* Arena = ASkateArena::Find(GetWorld()))
 	{
-		Arena->ResetScene(GetSkater());
+		Arena->ResetScene();
 	}
 	if (CameraRig)
 	{
@@ -451,6 +687,14 @@ void ASkatePlayerController::OnCycleFpsCap(const FInputActionValue& Value)
 	// VSync would hide the cap; turn it off while testing frame rates.
 	ConsoleCommand(TEXT("r.VSync 0"));
 	ConsoleCommand(FString::Printf(TEXT("t.MaxFPS %d"), FpsCaps[FpsCapIndex]));
+}
+
+void ASkatePlayerController::OnSwitchSkater(const FInputActionValue& Value)
+{
+	if (Team.Num() > 1)
+	{
+		SwitchTo((ActiveIndex + 1) % Team.Num());
+	}
 }
 
 void ASkatePlayerController::OnToggleBall(const FInputActionValue& Value)

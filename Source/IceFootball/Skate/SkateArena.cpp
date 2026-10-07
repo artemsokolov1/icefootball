@@ -13,6 +13,7 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "Skate/SkateBall.h"
 #include "Skate/SkateCharacter.h"
+#include "Skate/SkateGoalkeeper.h"
 #include "Skate/SkateVisuals.h"
 
 namespace SkateArenaDetail
@@ -129,17 +130,7 @@ bool ASkateArena::SettleOnGround()
 	{
 		Ball->SetIceZ(Target);
 	}
-	if (UWorld* World = GetWorld())
-	{
-		for (TActorIterator<ASkateCharacter> It(World); It; ++It)
-		{
-			ResetScene(*It);
-		}
-	}
-	if (Ball)
-	{
-		Ball->ResetBall(GetBallSpawnLocation());
-	}
+	ResetScene();
 	return true;
 }
 
@@ -163,10 +154,76 @@ void ASkateArena::BeginPlay()
 		BuildLighting();
 	}
 	SpawnBall();
-	// The skater may have been spawned before the rink moved: put it on the ice.
-	for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
+	SpawnGoalkeeper();
+	SpawnTeammate();
+	// The skater may have been spawned before the rink moved: put everyone on the ice.
+	ResetScene();
+}
+
+FTransform ASkateArena::GetSpawnTransform(int32 TeamSlot) const
+{
+	if (TeamSlot == 1)
 	{
-		ResetScene(*It);
+		const FVector Local(Layout.TeammateSpawn.X, Layout.TeammateSpawn.Y, 94.f);
+		return FTransform(FRotator(0.f, Layout.TeammateSpawnYaw, 0.f), GetActorTransform().TransformPosition(Local));
+	}
+	return GetPlayerSpawnTransform();
+}
+
+FSkateGoalFrame ASkateArena::GetGoalFrame() const
+{
+	using namespace SkateArenaDetail;
+	const FTransform& Xf = GetActorTransform();
+	const float LineX = Layout.RinkSize.X * 0.5f - Layout.GoalDepth;
+	const FVector Center = Xf.TransformPosition(FVector(LineX, Layout.GoalCenterY, 0.f));
+	const FVector Normal = Xf.TransformVectorNoScale(FVector(-1.f, 0.f, 0.f)).GetSafeNormal2D();
+	FSkateGoalFrame Frame;
+	Frame.Center = FSkateVec2(static_cast<float>(Center.X), static_cast<float>(Center.Y));
+	Frame.Normal = FSkateVec2(static_cast<float>(Normal.X), static_cast<float>(Normal.Y));
+	Frame.HalfWidth = Layout.GoalWidth * 0.5f - PostRadius;
+	Frame.Height = Layout.GoalHeight - PostRadius;
+	Frame.IceZ = static_cast<float>(Center.Z);
+	return Frame;
+}
+
+void ASkateArena::SpawnTeammate()
+{
+	UWorld* World = GetWorld();
+	if (!World || !Layout.bSpawnTeammate)
+	{
+		return;
+	}
+	for (TActorIterator<ASkateCharacter> It(World); It; ++It)
+	{
+		if (It->GetTeamSlot() == 1)
+		{
+			return; // already there (placed in the level)
+		}
+	}
+	const FTransform Spawn = GetSpawnTransform(1);
+	ASkateCharacter* Mate = World->SpawnActorDeferred<ASkateCharacter>(ASkateCharacter::StaticClass(), Spawn, nullptr, nullptr,
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (Mate)
+	{
+		Mate->SetTeamSlot(1);
+		Mate->FinishSpawning(Spawn);
+	}
+}
+
+void ASkateArena::SpawnGoalkeeper()
+{
+	UWorld* World = GetWorld();
+	if (!World || !Layout.bSpawnGoalkeeper || Goalkeeper)
+	{
+		return;
+	}
+	const FTransform Spawn(GetActorLocation());
+	Goalkeeper = World->SpawnActorDeferred<ASkateGoalkeeper>(ASkateGoalkeeper::StaticClass(), Spawn, this, nullptr,
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (Goalkeeper)
+	{
+		Goalkeeper->SetArena(this);
+		Goalkeeper->FinishSpawning(Spawn);
 	}
 }
 
@@ -189,15 +246,22 @@ bool ASkateArena::IsInsideRink(const FVector& WorldLocation, float Margin) const
 	return FMath::Abs(Local.X) < Layout.RinkSize.X * 0.5f + Margin && FMath::Abs(Local.Y) < Layout.RinkSize.Y * 0.5f + Margin && Local.Z > -20.f;
 }
 
-void ASkateArena::ResetScene(ASkateCharacter* Skater)
+void ASkateArena::ResetScene()
 {
-	if (Skater)
+	if (UWorld* World = GetWorld())
 	{
-		Skater->ResetSkater(GetPlayerSpawnTransform());
+		for (TActorIterator<ASkateCharacter> It(World); It; ++It)
+		{
+			It->ResetSkater(GetSpawnTransform(It->GetTeamSlot()));
+		}
 	}
 	if (Ball)
 	{
 		Ball->ResetBall(GetBallSpawnLocation());
+	}
+	if (Goalkeeper)
+	{
+		Goalkeeper->ResetKeeper();
 	}
 	bBallInGoal = false;
 }
@@ -207,6 +271,10 @@ void ASkateArena::PlaceBallInFront(ASkateCharacter* Skater)
 	if (!Skater || !Ball)
 	{
 		return;
+	}
+	if (Goalkeeper && Goalkeeper->GetKeeperState().bHolding)
+	{
+		Goalkeeper->ResetKeeper(); // the keeper lets go of the ball
 	}
 	const FVector Forward = Skater->GetActorForwardVector().GetSafeNormal2D();
 	FVector Location = Skater->GetActorLocation() + Forward * 70.f;

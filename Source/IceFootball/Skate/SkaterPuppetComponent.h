@@ -27,6 +27,8 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	void SetAnimTuning(const FSkateAnimTuning& InTuning) { Tuning = InTuning; }
+	/** Chest patch colour (set before BeginPlay). */
+	void SetMarkColor(const FLinearColor& InColor) { MarkColor = InColor; }
 	void ResetPose();
 
 	/** Blade contact point on the ice (Side 0 = left, 1 = right), world space, X axis along the blade. */
@@ -47,6 +49,7 @@ private:
 	FSkatePose Pose;
 	FString PoseLabel = TEXT("Stance");
 	bool bBuilt = false;
+	FLinearColor MarkColor = FLinearColor(0.95f, 0.95f, 0.95f);
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UStaticMeshComponent>> Parts;

@@ -35,6 +35,7 @@ const char* SkatePossessionLossName(ESkatePossessionLoss Loss)
 	case ESkatePossessionLoss::Blocked: return "Blocked (wall/obstacle)";
 	case ESkatePossessionLoss::Airborne: return "Airborne";
 	case ESkatePossessionLoss::Disabled: return "Disabled";
+	case ESkatePossessionLoss::Taken: return "Taken";
 	}
 	return "?";
 }
@@ -48,6 +49,7 @@ const char* SkateImpulseKindName(ESkateImpulseKind Kind)
 	case ESkateImpulseKind::Push: return "Push";
 	case ESkateImpulseKind::Kick: return "Kick";
 	case ESkateImpulseKind::BodyBlock: return "BodyBlock";
+	case ESkateImpulseKind::Save: return "Save";
 	}
 	return "?";
 }
@@ -55,6 +57,16 @@ const char* SkateImpulseKindName(ESkateImpulseKind Kind)
 void FSkateBallControl::Reset(FSkateBallControlState& State)
 {
 	State = FSkateBallControlState();
+}
+
+void FSkateBallControl::CancelActions(FSkateBallControlState& State)
+{
+	State.bCharging = false;
+	State.ChargeTime = 0.f;
+	State.bChargingPass = false;
+	State.PassChargeTime = 0.f;
+	State.KickBuffer = -1.f;
+	State.PushBuffer = -1.f;
 }
 
 float FSkateBallControl::PassChargeFraction(const FSkateBallControlTuning& Tuning, const FSkateBallControlState& State)
@@ -218,11 +230,13 @@ void FSkateBallControl::ReleasePossession(FSkateBallControlState& State, ESkateP
 bool FSkateBallControl::CanAcquire(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, const FSkateContactReport& Report, const FSkateBallControlState& State)
 {
 	const FSkatePossessionTuning& PT = Tuning.Possession;
+	const float MaxRelSpeed = Query.bIncomingPass ? SkateMath::Max(PT.PassReceiveMaxRelSpeed, PT.AcquireMaxRelSpeed) : PT.AcquireMaxRelSpeed;
 	return PT.bEnabled
 		&& Query.bHasBall
 		&& Query.bInteractionEnabled
+		&& !Query.bBallHeldByOther
 		&& Report.bInTrapZone
-		&& Report.RelativeSpeed <= PT.AcquireMaxRelSpeed
+		&& Report.RelativeSpeed <= MaxRelSpeed
 		&& State.TimeSinceAction >= PT.AcquireCooldownAfterAction
 		&& State.Possession.TimeSinceLost >= PT.AcquireCooldownAfterLoss
 		&& State.Possession.TimeSinceBlock >= PT.AcquireCooldownAfterBlock;
@@ -363,6 +377,10 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		{
 			ReleasePossession(State, ESkatePossessionLoss::Disabled);
 		}
+		else if (Query.bBallHeldByOther)
+		{
+			ReleasePossession(State, ESkatePossessionLoss::Taken);
+		}
 		else if (OutReport.BallHeight > PT.LoseHeight)
 		{
 			ReleasePossession(State, ESkatePossessionLoss::Airborne);
@@ -374,8 +392,10 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	}
 
 	// A carried ball is at the feet by definition: push / kick are always in reach.
-	const bool bActionReach = Poss.bPossessed || OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly;
-	const bool bGapOk = State.TimeSinceImpulse >= MinImpulseGap;
+	const bool bActionReach = !Query.bBallHeldByOther
+		&& (Poss.bPossessed || OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly);
+	// One impulse per ball per frame overall, also across skaters and the keeper.
+	const bool bGapOk = State.TimeSinceImpulse >= MinImpulseGap && Query.BallTimeSinceImpulse >= MinImpulseGap;
 	FSkateBallImpulse Impulse;
 
 	// Consumes a command buffer; records a whiff when it expires.
@@ -445,7 +465,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 			*OutCarry = Carry;
 		}
 	}
-	else if (Query.bHasBall && Query.bInteractionEnabled && bGapOk)
+	else if (Query.bHasBall && Query.bInteractionEnabled && !Query.bBallHeldByOther && bGapOk)
 	{
 		// Loose ball: dribble touches only in the non-possession mode; the body always blocks.
 		if (!PT.bEnabled && OutReport.bTouchAllowed && !OutReport.bOnCooldown)

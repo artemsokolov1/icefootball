@@ -8,10 +8,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Skate/Core/SkateKeeper.h"
 #include "SkateArena.generated.h"
 
 class ASkateBall;
 class ASkateCharacter;
+class ASkateGoalkeeper;
 class UPhysicalMaterial;
 class UStaticMeshComponent;
 
@@ -39,6 +41,20 @@ struct FSkateArenaLayout
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	FVector2D BallSpawn = FVector2D(600.f, 600.f);
+
+	/** Second skater (also player-controlled, switch with LB / Q): spawn point and facing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	bool bSpawnTeammate = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	FVector2D TeammateSpawn = FVector2D(-200.f, 1150.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	float TeammateSpawnYaw = 0.f;
+
+	/** AI goalkeeper in the goal. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
+	bool bSpawnGoalkeeper = true;
 
 	/** Acceleration straight along +X at this Y, from AccelStartX to the stop zone. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
@@ -111,13 +127,18 @@ public:
 	static FName BoardTag() { return FName(TEXT("SkateBoard")); }
 
 	FTransform GetPlayerSpawnTransform() const;
+	/** Spawn point of team slot 0 (player) or 1 (teammate). */
+	FTransform GetSpawnTransform(int32 TeamSlot) const;
+	/** The goal mouth in world space (for the keeper). */
+	FSkateGoalFrame GetGoalFrame() const;
+	ASkateGoalkeeper* GetGoalkeeper() const { return Goalkeeper; }
 	FVector GetBallSpawnLocation() const;
 	FVector GetRinkCenter() const { return GetActorLocation(); }
 	const FSkateArenaLayout& GetLayout() const { return Layout; }
 	ASkateBall* GetBall() const { return Ball; }
 
-	/** Puts skater and ball back to their start points, both stopped. */
-	void ResetScene(ASkateCharacter* Skater);
+	/** Puts both skaters, the keeper and the ball back to their start points, all stopped. */
+	void ResetScene();
 
 	/** Test helper: places a resting ball just in front of the skater's feet. */
 	void PlaceBallInFront(ASkateCharacter* Skater);
@@ -150,6 +171,9 @@ protected:
 	TObjectPtr<ASkateBall> Ball;
 
 	UPROPERTY(Transient)
+	TObjectPtr<ASkateGoalkeeper> Goalkeeper;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UPhysicalMaterial> IceMaterial;
 
 	UPROPERTY(Transient)
@@ -168,6 +192,8 @@ private:
 	void BuildGoal();
 	void BuildLighting();
 	void SpawnBall();
+	void SpawnTeammate();
+	void SpawnGoalkeeper();
 
 	UStaticMeshComponent* AddBox(const FVector& Center, const FVector& Size, const FLinearColor& Color, UPhysicalMaterial* PhysMat, float Yaw = 0.f);
 	UStaticMeshComponent* AddMarkLine(const FVector2D& A, const FVector2D& B, float Width, const FLinearColor& Color);

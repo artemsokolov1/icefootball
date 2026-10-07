@@ -15,7 +15,6 @@ namespace SkatePuppetDetail
 	const FLinearColor Gloves(0.04f, 0.04f, 0.05f);
 	const FLinearColor Boots(0.03f, 0.03f, 0.03f);
 	const FLinearColor Steel(0.75f, 0.78f, 0.82f);
-	const FLinearColor White(0.95f, 0.95f, 0.95f);
 
 	FVector ToVector(const FSkateVec3& V) { return FVector(V.X, V.Y, V.Z); }
 
@@ -55,7 +54,7 @@ void USkaterPuppetComponent::BuildParts()
 	};
 	PelvisPart = Add(TEXT("Cube"), Pants);
 	ChestPart = Add(TEXT("Cube"), Jersey);
-	ChestMarkPart = Add(TEXT("Cube"), White);
+	ChestMarkPart = Add(TEXT("Cube"), MarkColor);
 	NeckPart = Add(TEXT("Cylinder"), Skin);
 	HeadPart = Add(TEXT("Sphere"), Skin);
 	VisorPart = Add(TEXT("Cube"), Boots);

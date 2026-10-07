@@ -58,6 +58,11 @@ void ASkateCharacter::BeginPlay()
 	{
 		Feedback->SetSynth(IceSynth);
 	}
+	if (Puppet)
+	{
+		// Same team: same jersey; the chest patch tells the two skaters apart (white = 1, yellow = 2).
+		Puppet->SetMarkColor(TeamSlot == 0 ? FLinearColor(0.95f, 0.95f, 0.95f) : FLinearColor(1.f, 0.85f, 0.05f));
+	}
 	Super::BeginPlay();
 
 	// Ball contact must see this frame's movement result: tick after the movement component.
@@ -150,6 +155,24 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 	if (BallControl)
 	{
 		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed, Input.bKickReleased);
+	}
+}
+
+void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input)
+{
+	LastFrameInput = FSkateFrameInput();
+	LastStick.Direction = Input.Direction;
+	LastStick.Magnitude = Input.Magnitude;
+	LastBrake = Input.Brake;
+	LastBoost = Input.Boost;
+	SkateMovement->SetSkateInput(Input);
+}
+
+void ASkateCharacter::CancelBallActions()
+{
+	if (BallControl)
+	{
+		BallControl->CancelActions();
 	}
 }
 

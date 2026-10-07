@@ -48,12 +48,22 @@ void USkateBallControlComponent::QueueActions(bool bPushPress, bool bPushRelease
 	PendingActions.bKickReleased |= bKickRelease;
 }
 
+void USkateBallControlComponent::CancelActions()
+{
+	FSkateBallControl::CancelActions(ControlState);
+	PendingActions = FSkateBallActionInput();
+}
+
 void USkateBallControlComponent::ResetControl()
 {
 	FSkateBallControl::Reset(ControlState);
 	if (ASkateBall* B = Ball.Get())
 	{
-		B->SetCarried(false);
+		if (B->GetHolder() == this)
+		{
+			B->ClearHolder(this);
+			B->SetCarried(false);
+		}
 	}
 	PendingActions = FSkateBallActionInput();
 	Report = FSkateContactReport();
@@ -171,6 +181,9 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		Query.IceZ = B->GetIceZ();
 		const float PlanarDist = (Query.BallPos.XY() - Query.SkaterPos).Size();
 		Query.bLineOfSightClear = PlanarDist > TraceRange || HasLineOfSight(*Skater, *B);
+		Query.bBallHeldByOther = B->IsHeldByOther(this);
+		Query.BallTimeSinceImpulse = B->GetTimeSinceGameplayImpulse();
+		Query.bIncomingPass = B->IsPassFor(this);
 		if (PlanarDist <= TraceRange)
 		{
 			FindBoards(*Skater, *B, Query);
@@ -188,10 +201,21 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	// any release hands it back to plain physics before an impulse is applied.
 	if (B)
 	{
-		B->SetCarried(ControlState.Possession.bPossessed && !Impulse.IsValid());
-		if (Carry.bActive && !Impulse.IsValid())
+		// Only the skater that has the ball touches its carried state: the teammate leaves it alone.
+		const bool bCarryingNow = ControlState.Possession.bPossessed && !Impulse.IsValid();
+		if (bCarryingNow)
 		{
-			B->SetCarriedVelocity(ToVector(Carry.Velocity));
+			B->SetHolder(this);
+			B->SetCarried(true);
+			if (Carry.bActive)
+			{
+				B->SetCarriedVelocity(ToVector(Carry.Velocity));
+			}
+		}
+		else if (B->GetHolder() == this)
+		{
+			B->ClearHolder(this);
+			B->SetCarried(false);
 		}
 	}
 	if (ControlState.Possession.TouchPulseCount != TapsBefore)
@@ -209,7 +233,7 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	if (Impulse.IsValid() && B)
 	{
-		B->ApplyGameplayVelocity(ToVector(Impulse.NewBallVelocity), Impulse.Kind);
+		B->ApplyGameplayVelocity(ToVector(Impulse.NewBallVelocity), Impulse.Kind, this);
 		LastImpulse = Impulse;
 		if (Impulse.Kind != ESkateImpulseKind::BodyBlock)
 		{

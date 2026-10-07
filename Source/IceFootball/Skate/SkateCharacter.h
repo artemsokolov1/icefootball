@@ -51,6 +51,16 @@ public:
 	/** Called by the controller every frame before movement runs. */
 	void ApplyFrameInput(const FSkateFrameInput& Input);
 
+	/** Teammate AI: a ready world-space skate input (no stick shaping, no ball buttons). */
+	void ApplyMoveInput(const FSkateMoveInput& Input);
+
+	/** Drops a pass / shot wind-up in progress (the player switched to the other skater). */
+	void CancelBallActions();
+
+	/** 0 = first skater (player spawn), 1 = teammate. Picks the spawn point and the chest patch colour. */
+	void SetTeamSlot(int32 InSlot) { TeamSlot = InSlot; }
+	int32 GetTeamSlot() const { return TeamSlot; }
+
 	/** Teleports and stops the skater (scene reset). */
 	void ResetSkater(const FTransform& Transform);
 
@@ -114,6 +124,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
 	bool bDebugEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
+	int32 TeamSlot = 0;
 
 private:
 	void DrawMovementDebug() const;

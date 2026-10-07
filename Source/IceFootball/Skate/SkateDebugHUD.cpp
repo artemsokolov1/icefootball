@@ -10,6 +10,7 @@
 #include "Skate/SkateBallControlComponent.h"
 #include "Skate/SkateCameraRig.h"
 #include "Skate/SkateCharacter.h"
+#include "Skate/SkateGoalkeeper.h"
 #include "Skate/SkateMovementComponent.h"
 #include "Skate/SkatePlayerController.h"
 #include "Skate/SkaterPuppetComponent.h"
@@ -45,7 +46,8 @@ void ASkateDebugHUD::DrawHUD()
 	{
 		return;
 	}
-	ASkateCharacter* Skater = Cast<ASkateCharacter>(GetOwningPawn());
+	const ASkatePlayerController* Pc = Cast<ASkatePlayerController>(PlayerOwner);
+	ASkateCharacter* Skater = Pc ? Pc->GetSkater() : Cast<ASkateCharacter>(GetOwningPawn());
 	ASkateArena* Arena = ASkateArena::Find(GetWorld());
 	if (!Skater)
 	{
@@ -108,8 +110,46 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		!Skater->IsBallInteractionEnabled() ? TEXT("interaction OFF (skating only)") : (BallState && BallState->HasBall() ? TEXT("AT FEET") : TEXT("loose")),
 		Rig && Rig->IsStaticMode() ? TEXT("STATIC") : TEXT("follow"),
 		Cap > 0 ? *FString::FromInt(Cap) : TEXT("off"));
-	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), 0.f, 0.f, Canvas->ClipX, 24.f);
+	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), 0.f, 0.f, Canvas->ClipX, 44.f);
 	DrawText(Status, Info, 12.f, 4.f, GEngine->GetSmallFont(), TextScale);
+
+	// Team / keeper line.
+	const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper() : nullptr;
+	const int32 TeamSize = Pc ? Pc->GetTeam().Num() : 1;
+	const FString TeamLine = FString::Printf(TEXT("Skater %d of %d%s  |  Goals %d  |  Keeper saves %d"),
+		Skater->GetTeamSlot() + 1, TeamSize, TeamSize > 1 ? TEXT(" (LB / Q: switch)") : TEXT(""),
+		Arena ? Arena->GetGoals() : 0, Keeper ? Keeper->GetSaves() : 0);
+	DrawText(TeamLine, Info, 12.f, 24.f, GEngine->GetSmallFont(), TextScale);
+
+	// Marker over the controlled skater (filled yellow arrow + number), number only over the teammate.
+	if (Pc)
+	{
+		for (const TWeakObjectPtr<ASkateCharacter>& Member : Pc->GetTeam())
+		{
+			const ASkateCharacter* Mate = Member.Get();
+			if (!Mate)
+			{
+				continue;
+			}
+			const FVector Screen = Project(Mate->GetActorLocation() + FVector(0.f, 0.f, 135.f));
+			if (Screen.Z <= 0.f)
+			{
+				continue;
+			}
+			const float Sx = static_cast<float>(Screen.X);
+			const float Sy = static_cast<float>(Screen.Y);
+			const bool bActive = Mate == Skater;
+			const FLinearColor Color = bActive ? FLinearColor(1.f, 0.85f, 0.1f) : FLinearColor(0.75f, 0.75f, 0.75f, 0.8f);
+			const float W = bActive ? 22.f : 12.f;
+			const float H = bActive ? 16.f : 9.f;
+			for (float Row = 0.f; Row <= H; Row += 1.f)
+			{
+				const float Half = 0.5f * W * (1.f - Row / H);
+				DrawLine(Sx - Half, Sy - H + Row, Sx + Half, Sy - H + Row, Color, 1.f);
+			}
+			DrawText(FString::FromInt(Mate->GetTeamSlot() + 1), Color, Sx - 4.f, Sy - H - 20.f, GEngine->GetSmallFont(), bActive ? 1.4f : 1.f);
+		}
+	}
 
 	// Kick charge bar (gameplay feedback, not debug).
 	if (const USkateBallControlComponent* Ball = Skater->GetBallControl())
@@ -131,6 +171,12 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	{
 		const FString Text = FString::Printf(TEXT("GOAL!  (%d)"), Arena->GetGoals());
 		DrawText(Text, Good, Canvas->ClipX * 0.5f - 90.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.6f);
+	}
+	else if (Keeper && Keeper->GetTimeSinceAction() < 1.2f
+		&& (Keeper->GetLastAction() == ESkateKeeperAction::Parry || Keeper->GetLastAction() == ESkateKeeperAction::Catch))
+	{
+		const FString Text = Keeper->GetLastAction() == ESkateKeeperAction::Catch ? TEXT("SAVE! (caught)") : TEXT("SAVE!");
+		DrawText(Text, Note, Canvas->ClipX * 0.5f - 70.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.4f);
 	}
 }
 
@@ -208,9 +254,9 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 	const USkaterPuppetComponent* Puppet = Skater->GetPuppet();
 	const double Now = GetWorld()->GetTimeSeconds();
 
-	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.55f), 6.f, 30.f, 560.f, 590.f);
+	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.55f), 6.f, 48.f, 560.f, 610.f);
 	CursorX = 14.f;
-	CursorY = 36.f;
+	CursorY = 54.f;
 
 	// ---- Movement ----
 	const float Speed = State.Velocity.Size();
@@ -250,6 +296,21 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 		{
 			Line(FString::Printf(TEXT("Possession: loose   last lost: %s (%.1f s ago)   traps %d"),
 				ANSI_TO_TCHAR(SkatePossessionLossName(Po.LastLoss)), FMath::Min(Po.TimeSinceLost, 99.f), Po.AcquireCount), Dim);
+		}
+		if (const ASkatePlayerController* TeamPc = Cast<ASkatePlayerController>(PlayerOwner))
+		{
+			if (TeamPc->GetTeam().Num() > 1)
+			{
+				Line(FString::Printf(TEXT("Teammate AI: %s"), *TeamPc->GetTeammateModeName()), Dim);
+			}
+		}
+		if (const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper() : nullptr)
+		{
+			const FSkateKeeperState& K = Keeper->GetKeeperState();
+			Line(FString::Printf(TEXT("Keeper: at %+.0f cm  %s%s  last: %s  saves %d (caught %d)"), K.Lateral,
+				K.bThreat ? *FString::Printf(TEXT("shot -> %+.0f cm in %.2f s  "), K.PredLateral, K.TimeToLine) : TEXT(""),
+				K.DiveTime >= 0.f ? TEXT("DIVING  ") : (K.bHolding ? TEXT("HOLDING  ") : TEXT("")),
+				ANSI_TO_TCHAR(SkateKeeperActionName(K.LastAction)), K.Saves, K.Catches), Dim);
 		}
 		const bool bReach = R.Reason == ESkateContactReason::Reachable || R.Reason == ESkateContactReason::ActionReachOnly;
 		FString Verdict = FString::Printf(TEXT("Contact: %s"), ANSI_TO_TCHAR(SkateContactReasonName(R.Reason)));

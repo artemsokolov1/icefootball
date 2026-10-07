@@ -9,6 +9,10 @@ USkateMovementComponent::USkateMovementComponent()
 	// The ball must not be pushed by capsule sweeps (no second, physics-driven impulse).
 	bEnablePhysicsInteraction = false;
 
+	// The teammate has no controller of its own (the player controller drives whichever skater is
+	// active and feeds the other one AI input), so movement must run without a controller too.
+	bRunPhysicsWithNoController = true;
+
 	// Small CMC sub-steps keep collision response consistent at 30 FPS (note: below the Details-panel
 	// ClampMin of 0.0166, which only applies to editor edits); the skate model
 	// sub-steps further internally (FSkateMovementTuning::MaxSubstep).

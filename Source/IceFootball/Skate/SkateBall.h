@@ -1,8 +1,11 @@
 // Ice skating prototype - free football (Chaos rigid body).
 //
-// The ball is never attached, never teleported during play and its vertical velocity is never
-// overwritten. Gameplay impulses arrive only through ApplyGameplayVelocity() (one call per
-// contact, from USkateBallControlComponent). The ball ignores the Pawn channel so the skater
+// The ball is never attached and its vertical velocity is never overwritten by skaters. Gameplay
+// impulses arrive only through ApplyGameplayVelocity() (one call per contact, from a skater's
+// USkateBallControlComponent or the goalkeeper). The only teleports during play: the keeper holding
+// the ball in its hands (HoldAt) and its throw-out start point.
+// The ball also records who has it (Holder: a skater carrying it, or the keeper), so a teammate never
+// takes the ball off the other one, and who touched it last (a pass can be received firmer than a shot). The ball ignores the Pawn channel so the skater
 // capsule cannot add a second physical hit. Extra forces: rolling resistance while grounded,
 // and a full stop below StopSpeed (no endless creeping).
 #pragma once
@@ -33,7 +36,24 @@ public:
 	void SetIceZ(float InIceZ) { IceZ = InIceZ; }
 
 	/** One gameplay contact: sets the new linear velocity and a matching rolling spin. Logged for diagnostics. */
-	void ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind);
+	void ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source = nullptr);
+
+	// ---- Who has the ball ----
+	/** Claims the ball (a skater trapped it, the keeper caught it). */
+	void SetHolder(const UObject* InHolder) { Holder = InHolder; }
+	/** Gives the ball up, only if InHolder still has it. */
+	void ClearHolder(const UObject* InHolder);
+	bool IsHeldByOther(const UObject* Who) const;
+	const UObject* GetHolder() const { return Holder.Get(); }
+
+	/** Keeper: the ball sits in the hands (teleported, no velocity, no gravity) until released. */
+	void HoldAt(const FVector& Location);
+	void ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source);
+
+	/** Seconds since the last gameplay impulse (from anyone). */
+	float GetTimeSinceGameplayImpulse() const;
+	/** The ball is a pass (push / throw-out) that Receiver did not make itself. */
+	bool IsPassFor(const UObject* Receiver) const;
 
 	/** Possession: while carried, damping and rolling resistance are off and the velocity is steered every
 	 *  frame by SetCarriedVelocity (not a gameplay impulse). The ball keeps colliding with everything. */
@@ -84,6 +104,10 @@ private:
 	bool bCarried = false;
 
 	double LastImpulseTime = -1000.0;
+	ESkateImpulseKind LastImpulseKind = ESkateImpulseKind::None;
+	TWeakObjectPtr<const UObject> LastImpulseSource;
+	TWeakObjectPtr<const UObject> Holder;
+	bool bHeldInHands = false;
 	int32 DoubleImpulseFaults = 0;
 	float LastDoubleImpulseGap = 0.f;
 	int32 PawnContactFaults = 0;

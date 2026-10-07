@@ -13,6 +13,12 @@
 //   D-pad L / R  previous / next preset     1 / 2 / 3 (direct)
 //   D-pad Down   FPS cap 0/30/60/120        F3
 //   Menu/Start   ball interaction on/off    F4
+//   LB           switch skater              Q
+//
+// Two skaters on the team, both played by this controller: the input drives the ACTIVE skater,
+// the other one gets simple AI input (FSkateTeammateAI: wait facing the ball / receive a pass /
+// fetch a loose ball / hold the ball). Control switches with LB / Q, and automatically to the
+// teammate a pass is played to and to a teammate that just got the ball.
 //
 // The stick is read raw; ASkateCharacter applies the radial dead zone and response curve,
 // then projects it onto the ice relative to the fixed camera yaw. No input smoothing.
@@ -44,6 +50,17 @@ public:
 	virtual void OnPossess(APawn* InPawn) override;
 
 	ASkateCameraRig* GetCameraRig() const { return CameraRig; }
+
+	/** The skater the player controls right now (the possessed pawn or the teammate). */
+	ASkateCharacter* GetSkater() const;
+	/** Both team skaters (slot order). */
+	const TArray<TWeakObjectPtr<ASkateCharacter>>& GetTeam() const { return Team; }
+	/** Last AI decision of the not-controlled teammate (debug HUD). */
+	FString GetTeammateModeName() const;
+
+	/** Switch control to the teammate the player passes to, and to a teammate that gets the ball. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
+	bool bAutoSwitch = true;
 	int32 GetFpsCap() const;
 	bool WasLastInputGamepad() const { return bLastInputGamepad; }
 
@@ -60,8 +77,12 @@ protected:
 private:
 	UInputAction* MakeAction(const TCHAR* Name, EInputActionValueType ValueType);
 	void BuildInputMappings();
-	ASkateCharacter* GetSkater() const;
 	void EnsureCameraRig();
+	void RefreshTeam();
+	void SwitchTo(int32 Index);
+	void UpdateAutoSwitch();
+	void DriveTeammates();
+	void SyncTeamSettings();
 
 	// Axis handlers
 	void OnStick(const FInputActionValue& Value);
@@ -91,6 +112,7 @@ private:
 	void OnPreset3(const FInputActionValue& Value);
 	void OnCycleFpsCap(const FInputActionValue& Value);
 	void OnToggleBall(const FInputActionValue& Value);
+	void OnSwitchSkater(const FInputActionValue& Value);
 
 	UInputAction* IA_Stick = nullptr;
 	UInputAction* IA_Keys = nullptr;
@@ -110,6 +132,13 @@ private:
 	UInputAction* IA_Preset3 = nullptr;
 	UInputAction* IA_FpsCap = nullptr;
 	UInputAction* IA_ToggleBall = nullptr;
+	UInputAction* IA_Switch = nullptr;
+
+	TArray<TWeakObjectPtr<ASkateCharacter>> Team;
+	int32 ActiveIndex = 0;
+	TArray<int32> SeenAcquires;
+	TArray<int32> SeenImpulses;
+	uint8 TeammateMode = 0;
 
 	TWeakObjectPtr<ASkateArena> CachedArena;
 	FVector2D StickValue = FVector2D::ZeroVector;
