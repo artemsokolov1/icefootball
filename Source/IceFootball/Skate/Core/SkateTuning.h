@@ -504,7 +504,7 @@ struct FSkateBallPhysicsTuning
 	bool bUseCCD = true;
 };
 
-/** Top-down angled camera (ASkateCameraRig). */
+/** NHL-style side camera (ASkateCameraRig): high on the stands, looks across the rink, slides along it. */
 USTRUCT(BlueprintType)
 struct FSkateCameraTuning
 {
@@ -512,23 +512,44 @@ struct FSkateCameraTuning
 
 	/** Fixed camera pitch (deg, negative = looking down). The camera never yaws with the skater. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "-89", ClampMax = "-20"))
-	float Pitch = -56.f;
+	float Pitch = -40.f;
 
-	/** Fixed camera yaw (deg). Stick "up" = this direction projected onto the ice. */
+	/** Fixed camera yaw (deg). Stick "up" = this direction projected onto the ice.
+	 *  -90: camera on the +Y stands looking across the rink, the goal (+X) is on screen right. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-	float Yaw = 0.f;
+	float Yaw = -90.f;
 
-	/** Distance from the focus point (cm). */
+	/** Distance from the focus point (cm) when the skater and the interest point are close. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "300"))
-	float Distance = 1650.f;
+	float Distance = 2600.f;
+
+	/** The camera pulls back up to this distance (cm) to keep the interest point in frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "300"))
+	float MaxDistance = 6500.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "20", ClampMax = "120"))
-	float FieldOfView = 55.f;
+	float FieldOfView = 50.f;
 
-	/** Look-ahead = velocity * this time (s), clamped to MaxLookAhead. Shows the space in front of the skater. */
+	/** Interest point = the ball, or the teammate while this skater has the ball. The focus moves this
+	 *  fraction of the way from the skater towards it (0 = skater only, 0.5 = midpoint, as in NHL). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0", ClampMax = "1"))
+	float InterestWeight = 0.5f;
+
+	/** The focus never leaves the skater by more than this (cm), however far the interest point is. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
+	float MaxInterestOffset = 1600.f;
+
+	/** Smoothing time (s) of the interest offset and of the zoom (the ball / teammate change abruptly). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.01"))
+	float InterestSmoothTime = 0.6f;
+
+	/** Fraction of the half-screen (from the centre) the skater and the interest point may reach before the camera pulls back. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.2", ClampMax = "1"))
+	float FrameFill = 0.75f;
+
 	/** Extra field of view (deg) at full sprint speed, so a sprint reads as clearly faster. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0", ClampMax = "30"))
-	float SprintFovKick = 7.f;
+	float SprintFovKick = 5.f;
 
 	/** Speed (cm/s) where the sprint FOV kick starts and where it is full. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
@@ -537,11 +558,12 @@ struct FSkateCameraTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "1"))
 	float SprintFovFullSpeed = 980.f;
 
+	/** Look-ahead = velocity * this time (s), clamped to MaxLookAhead. Shows the space in front of the skater. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
-	float LookAheadTime = 0.35f;
+	float LookAheadTime = 0.3f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0"))
-	float MaxLookAhead = 240.f;
+	float MaxLookAhead = 200.f;
 
 	/** Smoothing time (s) of the look-ahead offset only. The skater position itself is followed without lag. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.01"))

@@ -1,8 +1,10 @@
-// Ice skating prototype - fixed-angle top-down camera.
+// Ice skating prototype - NHL-style side camera.
 //
-// Follow mode: fixed pitch/yaw/distance. The skater position is followed without lag (no
-// hidden input latency); only a small, clamped look-ahead offset (velocity * time) is smoothed.
-// The camera never yaws with the skater's body. No shake.
+// Follow mode: fixed pitch/yaw, the camera sits high on one side of the rink and slides along it.
+// The focus is the controlled skater pulled part of the way towards an "interest" point (the ball,
+// or the teammate while this skater has the ball), and the camera pulls back so both stay in frame.
+// The skater position itself is followed without lag (no hidden input latency); only the interest
+// offset, the zoom and a small look-ahead are smoothed. The camera never yaws with the skater. No shake.
 // Static mode (diagnostics): fixed view of the whole rink, so movement can be judged without
 // any camera motion.
 #pragma once
@@ -26,6 +28,8 @@ public:
 
 	/** bBlend: glide over to the new target (switching skaters) instead of cutting. */
 	void SetTarget(AActor* InTarget, bool bBlend = false);
+	/** What the view should also keep in frame (ball / teammate). Null = frame the skater only. */
+	void SetInterest(AActor* InInterest) { Interest = InInterest; }
 	void SetStaticFocus(const FVector& InFocus) { StaticFocus = InFocus; }
 	void SetStaticMode(bool bInStatic);
 	bool IsStaticMode() const { return bStaticMode; }
@@ -48,6 +52,10 @@ private:
 	void UpdateCamera(float DeltaSeconds);
 
 	TWeakObjectPtr<AActor> Target;
+	TWeakObjectPtr<AActor> Interest;
+	FVector2D InterestOffset = FVector2D::ZeroVector;
+	FVector2D InterestOffsetVelocity = FVector2D::ZeroVector;
+	float Zoom = 0.f; // current smoothed distance; 0 = not initialised
 	bool bStaticMode = false;
 	FVector StaticFocus = FVector::ZeroVector;
 	FVector2D LookAhead = FVector2D::ZeroVector;

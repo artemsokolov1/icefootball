@@ -56,6 +56,9 @@ void ASkateCameraRig::SnapToTarget()
 	BlendOffset = FVector::ZeroVector;
 	LookAhead = FVector2D::ZeroVector;
 	LookAheadVelocity = FVector2D::ZeroVector;
+	InterestOffset = FVector2D::ZeroVector;
+	InterestOffsetVelocity = FVector2D::ZeroVector;
+	Zoom = 0.f;
 	UpdateCamera(0.f);
 }
 
@@ -100,13 +103,57 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 		LookAhead = SmoothDamp(LookAhead, DesiredLookAhead, LookAheadVelocity, Tuning.LookAheadSmoothTime, DeltaSeconds);
 	}
 
-	// Ground point under the skater (capsule centre minus half height ~ 92) plus focus height.
+	// Interest point: pull the focus towards the ball / teammate and zoom out so both stay in frame.
 	const FVector TargetLoc = TargetActor->GetActorLocation();
-	const FVector Focus(TargetLoc.X + LookAhead.X, TargetLoc.Y + LookAhead.Y, TargetLoc.Z - 92.f + FocusHeight);
+	FVector2D DesiredInterestOffset = FVector2D::ZeroVector;
+	if (const AActor* InterestActor = Interest.Get())
+	{
+		DesiredInterestOffset = FVector2D(InterestActor->GetActorLocation() - TargetLoc) * Tuning.InterestWeight;
+		if (DesiredInterestOffset.Size() > Tuning.MaxInterestOffset)
+		{
+			DesiredInterestOffset = DesiredInterestOffset.GetSafeNormal() * Tuning.MaxInterestOffset;
+		}
+	}
+	// Exact fit: the distance at which a ground point at Offset from the focus lands inside FrameFill of the
+	// half-screen, both horizontally (screen right) and vertically (depth, foreshortened by the pitch).
 	const FRotator Rotation(Tuning.Pitch, Tuning.Yaw, 0.f);
+	const FVector2D Fwd(FRotator(0.f, Tuning.Yaw, 0.f).Vector());
+	const FVector2D Right(-Fwd.Y, Fwd.X);
+	const float PitchRad = FMath::DegreesToRadians(-Tuning.Pitch);
+	const float CosP = FMath::Cos(PitchRad), SinP = FMath::Sin(PitchRad);
+	const float TanH = FMath::Tan(FMath::DegreesToRadians(Tuning.FieldOfView * 0.5f));
+	const float TanV = TanH * 9.f / 16.f; // ponytail: assumes a 16:9 viewport; read the real aspect if it matters
+	const auto NeededZoom = [&](const FVector2D& Offset)
+	{
+		const float R = static_cast<float>(FVector2D::DotProduct(Offset, Right));
+		const float D = static_cast<float>(FVector2D::DotProduct(Offset, Fwd)); // + = farther from the camera
+		const float ForWidth = FMath::Abs(R) / (Tuning.FrameFill * TanH) - D * CosP;
+		const float ForHeight = FMath::Abs(D) * SinP / (Tuning.FrameFill * TanV) - D * CosP;
+		return FMath::Max(ForWidth, ForHeight);
+	};
+	float FitDistance = NeededZoom(-DesiredInterestOffset); // the skater
+	if (const AActor* InterestActor = Interest.Get())
+	{
+		FitDistance = FMath::Max(FitDistance, NeededZoom(FVector2D(InterestActor->GetActorLocation() - TargetLoc) - DesiredInterestOffset));
+	}
+	const float DesiredZoom = FMath::Clamp(FitDistance, Tuning.Distance, FMath::Max(Tuning.MaxDistance, Tuning.Distance));
+	if (DeltaSeconds > 0.f && Zoom > 0.f)
+	{
+		InterestOffset = SmoothDamp(InterestOffset, DesiredInterestOffset, InterestOffsetVelocity, Tuning.InterestSmoothTime, DeltaSeconds);
+		Zoom = FMath::FInterpTo(Zoom, DesiredZoom, DeltaSeconds, 2.f / Tuning.InterestSmoothTime);
+	}
+	else
+	{
+		InterestOffset = DesiredInterestOffset;
+		Zoom = DesiredZoom;
+	}
+
+	// Ground point under the skater (capsule centre minus half height ~ 92) plus focus height.
+	const FVector Focus(TargetLoc.X + LookAhead.X + InterestOffset.X, TargetLoc.Y + LookAhead.Y + InterestOffset.Y,
+		TargetLoc.Z - 92.f + FocusHeight);
 	if (DeltaSeconds > 0.f)
 	{
 		BlendOffset *= FMath::Exp(-7.f * DeltaSeconds); // ~0.4 s to settle on a new skater
 	}
-	SetActorLocationAndRotation(Focus - Rotation.Vector() * Tuning.Distance + BlendOffset, Rotation);
+	SetActorLocationAndRotation(Focus - Rotation.Vector() * Zoom + BlendOffset, Rotation);
 }

@@ -11,7 +11,7 @@
 | Система ввода | Нет | Enhanced Input; действия и mapping context создаются в коде, `.uasset` не нужны |
 | Движение | Нет | Наследник `UCharacterMovementComponent`, заменяется только расчёт скорости |
 | Анимграф | Нет, клипов нет | Процедурная «кукла» из базовых фигур с IK ног, без root motion |
-| Камера | Нет | Отдельный актор `ASkateCameraRig`, фиксированный ракурс |
+| Камера | Нет | Отдельный актор `ASkateCameraRig`, фиксированный ракурс сбоку, зум по расстоянию до мяча / партнёра |
 | Физика мяча | Нет | Chaos rigid body + CCD только на мяче |
 | Чужой код, меняющий скорость/поворот | Нет (пустой проект) | Внутри своих классов отключено всё, что спорит за объект: `bUseControllerRotationYaw`, `bOrientRotationToMovement`, `bUseControllerDesiredRotation`, `bEnablePhysicsInteraction`. Капсула игнорирует мяч |
 
@@ -158,7 +158,7 @@ Source/IceFootball/Skate/
   SkateMovementComponent.h/.cpp     CMC: CalcVelocity/PhysicsRotation
   SkateCharacter.h/.cpp             пешка, пресеты, маршрутизация ввода
   SkatePlayerController.h/.cpp      Enhanced Input (создаётся в коде)
-  SkateCameraRig.h/.cpp             камера сверху под углом, статичный режим
+  SkateCameraRig.h/.cpp             боковая камера в стиле NHL (кадрирует мяч / партнёра), статичный режим
   SkateBall.h/.cpp                  мяч (Chaos), сопротивление качению, диагностика
   SkateBallControlComponent.h/.cpp  применение импульса, трассировка стены, debug-зона
   SkaterPuppetComponent.h/.cpp      процедурная поза, IK ног

@@ -487,6 +487,20 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 			{
 				CameraRig->SetStaticFocus(Arena->GetRinkCenter()); // the rink may settle onto the level's ground
 			}
+			// Keep the pass target in frame while holding the ball, otherwise the ball itself.
+			AActor* Interest = Skater->GetBallControl()->GetBall();
+			if (Skater->GetBallControl()->HasBall())
+			{
+				for (const TWeakObjectPtr<ASkateCharacter>& Mate : Team)
+				{
+					if (Mate.IsValid() && Mate.Get() != Skater)
+					{
+						Interest = Mate.Get();
+						break; // ponytail: first teammate; nearest one when the team grows past two
+					}
+				}
+			}
+			CameraRig->SetInterest(Interest);
 		}
 
 		FSkateFrameInput FrameInput;
