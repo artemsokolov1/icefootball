@@ -258,9 +258,10 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		}
 		Query.bThroughTargetValid = bThroughTargetValid;
 		Query.ThroughTargetPos = FSkateVec2(static_cast<float>(ThroughTarget.X), static_cast<float>(ThroughTarget.Y));
-		// Every pass goes to a teammate: the one the stick points at most (a deflected stick), else the nearest one.
+		// A pass goes to the teammate the stick points at (within PassAssistAngle), to the nearest one with an idle
+		// stick, and where the stick points when no teammate is that way (off the boards, into space).
 		const bool bAimed = Query.StickMag > 0.3f;
-		float BestScore = TNumericLimits<float>::Max();
+		float BestScore = bAimed ? -FMath::Cos(FMath::DegreesToRadians(ControlTuning.PassAssistAngle)) : TNumericLimits<float>::Max();
 		PassMate = nullptr;
 		for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
 		{

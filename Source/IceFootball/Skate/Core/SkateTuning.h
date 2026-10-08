@@ -414,12 +414,17 @@ struct FSkateBallControlTuning
 
 	/** Pass (A) ball speed (cm/s) for a quick tap - already a firm pass. Hold A to charge up to PassMaxSpeed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float PushSpeed = 1150.f;
+	float PushSpeed = 1400.f;
 
 	/** A pass (A) always goes to the teammate, led to where it will be, and is played just fast enough to get there
 	 *  at this speed (cm/s) given the ball's damping and rolling resistance. The charge adds pace on top. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float PassArriveSpeed = 600.f;
+	float PassArriveSpeed = 800.f;
+
+	/** A deflected stick picks the teammate within this angle (deg) of it; none there - the pass goes where the stick
+	 *  points (off the boards, into space). An idle stick passes to the nearest teammate. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "180"))
+	float PassAssistAngle = 50.f;
 
 	/** With a pass on its way to this skater, a released A / X waits this long (s) for the ball: a one-touch pass or shot. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "3"))
