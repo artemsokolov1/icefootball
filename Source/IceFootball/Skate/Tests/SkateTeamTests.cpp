@@ -39,9 +39,10 @@ namespace SkateTeamTestsDetail
 		bool bAI = false;
 		FSkateSkaterBrain Brain;
 		ESkateSkaterMode Mode = ESkateSkaterMode::Wait;
-		/** Stun left after a body check (s), check-button window left (s). */
+		/** Stun left after a body check (s), check-button window left (s), poke window left (s). */
 		float Stun = 0.f;
 		float CheckLeft = 0.f;
+		float PokeLeft = 0.f;
 		int Hits = 0;
 		int Impulses = 0;
 		int BodyBlocks = 0;
@@ -132,9 +133,11 @@ namespace SkateTeamTestsDetail
 			Q.BallVel = BallVel;
 			Q.BallRadius = T.BallPhysics.Radius;
 			Q.bBallHeldByOther = Holder != NoHolder && Holder != Index;
-			// Same rule as USkateBallControlComponent: an opponent's ball may be taken after the protection time.
+			// Same rule as USkateBallControlComponent: an opponent's ball may be taken after the protection time,
+			// and only when it strayed from the carrier's feet or this skater pokes at it.
 			Q.bStealAllowed = Q.bBallHeldByOther && Holder != KeeperHolder && Team[Holder] != Team[Index]
-				&& S[Holder].Control.Possession.TimeHeld >= T.BallControl.Possession.StealProtectTime;
+				&& S[Holder].Control.Possession.TimeHeld >= T.BallControl.Possession.StealProtectTime
+				&& (S[Holder].Control.Possession.CarryError > T.BallControl.Possession.StealLooseDistance || S[Index].PokeLeft > 0.f);
 			Q.BallTimeSinceImpulse = BallSinceImpulse;
 			Q.bIncomingPass = LastKind == ESkateImpulseKind::Push && LastSource != Index;
 			Q.bPassTargetValid = Team[1 - Index] == Team[Index];
@@ -179,15 +182,25 @@ namespace SkateTeamTestsDetail
 			{
 				S[Index].Stun = SkateMath::Max(0.f, S[Index].Stun - Dt);
 				S[Index].CheckLeft -= Dt;
+				S[Index].PokeLeft -= Dt;
 				if (S[Index].bAI)
 				{
 					const FSkateSkaterDecision Dec = FSkateSkaterAI::Think(AIView(Index), T.AI, S[Index].Brain, Dt);
 					Used[Index] = Dec.Move;
 					UsedAct[Index] = Dec.Actions;
 					S[Index].Mode = Dec.Mode;
-					if (Dec.bCheck && S[Index].CheckLeft <= 0.f)
+					if (Dec.bCheck && S[Index].CheckLeft <= 0.f && S[Index].PokeLeft <= 0.f)
 					{
-						S[Index].CheckLeft = T.Hit.CheckWindow;
+						// The check button: a poke with the ball at an opponent's feet within reach, otherwise a body check.
+						const bool bOpponentBall = Holder != NoHolder && Holder != KeeperHolder && Team[Holder] != Team[Index];
+						if (bOpponentBall && (BallPos.XY() - S[Index].Pos).Size() < T.BallControl.Possession.PokeRange)
+						{
+							S[Index].PokeLeft = T.BallControl.Possession.PokeWindow;
+						}
+						else
+						{
+							S[Index].CheckLeft = T.Hit.CheckWindow;
+						}
 					}
 				}
 				if (S[Index].Stun > 0.f)
@@ -485,6 +498,18 @@ namespace SkateTeamTestsDetail
 		return Dir;
 	}
 
+	void TestPassReachesFarTeammate(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.TapPassReachesFarTeammate");
+		const float Dt = 1.f / 60.f;
+		const FPassOutcome Far = Pass(FSkateVec2(2400.f, 0.f), FSkateVec2(-1.f, 0.f), 0.f, Dt);
+		const FPassOutcome Near = Pass(FSkateVec2(600.f, 0.f), FSkateVec2(-1.f, 0.f), 0.f, Dt);
+		R.bPassed = Far.bReceived && Far.PassSpeed > 1250.f && Near.bReceived && Near.PassSpeed < 1200.f && Near.ReceiverBounces == 0;
+		R.Details = Fmt("tap pass to a teammate 24 m away: %.0f cm/s, received %s after %.2fs; 6 m away: %.0f cm/s (the tap itself), received %s",
+			Far.PassSpeed, Far.bReceived ? "yes" : "NO", Far.Time, Near.PassSpeed, Near.bReceived ? "yes" : "NO");
+		Out.push_back(R);
+	}
+
 	void TestPassAssist(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R("Team.PassAssistAimsAtTeammate");
@@ -641,6 +666,54 @@ namespace SkateTeamTestsDetail
 	}
 
 	// ---------------------------------- Opponents ------------------------------------------
+
+	void TestNoStealWithoutPoke(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.NoStealWithoutThePoke");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(500.f, 60.f), FSkateVec2(-1.f, 0.f));
+		Sim.GiveBall(0, Dt);
+		bool bTook = false;
+		Sim.Run(3.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			In[1] = Stick(FSkateVec2(-1.f, 0.f), 0.5f); // skates slowly through the carrier's front, no button
+			bTook |= Sim.S[1].Control.Possession.bPossessed;
+		});
+		R.bPassed = !bTook && Sim.S[0].Control.Possession.LastLoss != ESkatePossessionLoss::Taken;
+		R.Details = Fmt("opponent skates through the carried ball without the button: took it %d, carrier's loss %s",
+			bTook ? 1 : 0, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss));
+		Out.push_back(R);
+	}
+
+	void TestPokeTakesTheBall(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.PokeTakesTheBall");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(500.f, 60.f), FSkateVec2(-1.f, 0.f));
+		Sim.GiveBall(0, Dt);
+		float Took = -1.f;
+		Sim.Run(3.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			In[1] = Stick(FSkateVec2(-1.f, 0.f), 0.5f);
+			// Pokes whenever the ball is within reach (the button, pressed again after each window).
+			if (Sim.S[1].PokeLeft <= 0.f && (Sim.BallPos.XY() - Sim.S[1].Pos).Size() < Sim.T.BallControl.Possession.PokeRange)
+			{
+				Sim.S[1].PokeLeft = Sim.T.BallControl.Possession.PokeWindow;
+			}
+			if (Took < 0.f && Sim.S[1].Control.Possession.bPossessed) { Took = Time; }
+		});
+		R.bPassed = Took > 0.f && Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Taken;
+		R.Details = Fmt("same approach with the poke: ball taken after %.2fs, carrier's loss %s", Took, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss));
+		Out.push_back(R);
+	}
 
 	void TestOpponentSteals(std::vector<FSkateTestResult>& Out)
 	{
@@ -1083,6 +1156,7 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	using namespace SkateTeamTestsDetail;
 	TestPassAndReceive(Out);
 	TestPassAssist(Out);
+	TestPassReachesFarTeammate(Out);
 	TestNoStealFromTeammate(Out);
 	TestTeammateSupportsAhead(Out);
 	TestTeammateIgnoresOwnPass(Out);
@@ -1092,6 +1166,8 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestNoCheckBetweenTeammates(Out);
 	TestSkatesBackwards(Out);
 	TestDefenderFacesTheBall(Out);
+	TestNoStealWithoutPoke(Out);
+	TestPokeTakesTheBall(Out);
 	TestOpponentSteals(Out);
 	TestOpponentAttacksAndShoots(Out);
 	TestOpponentDodgesBlocker(Out);

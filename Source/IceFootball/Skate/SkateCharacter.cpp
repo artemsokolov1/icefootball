@@ -3,6 +3,7 @@
 #include "Components/CapsuleComponent.h"
 #include "IceFootball.h"
 #include "Skate/Core/SkateHit.h"
+#include "Skate/SkateBall.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Skate/Core/SkateTuningPresets.h"
@@ -179,8 +180,20 @@ void ASkateCharacter::StartCheck()
 	{
 		return;
 	}
-	CheckLeft = HT.CheckWindow;
 	TimeSinceCheck = 0.f;
+	// Poke: the ball is at an opponent's feet within reach.
+	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
+	if (const ASkateBall* Ball = BallControl ? BallControl->GetBall() : nullptr)
+	{
+		const USkateBallControlComponent* Holder = Cast<USkateBallControlComponent>(Ball->GetHolder());
+		const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
+		if (Carrier && Carrier->GetTeam() != Team && FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) < PT.PokeRange)
+		{
+			PokeLeft = PT.PokeWindow;
+			return;
+		}
+	}
+	CheckLeft = HT.CheckWindow;
 	const FSkateVec2 Heading = SkateMovement->GetSkateState().Heading;
 	SkateMovement->Velocity.X += Heading.X * HT.LungeSpeed;
 	SkateMovement->Velocity.Y += Heading.Y * HT.LungeSpeed;
@@ -276,6 +289,7 @@ void ASkateCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	StunLeft = FMath::Max(0.f, StunLeft - DeltaSeconds);
 	CheckLeft -= DeltaSeconds;
+	PokeLeft -= DeltaSeconds;
 	TimeSinceCheck += DeltaSeconds;
 	TimeSinceHit += DeltaSeconds;
 	if (bDebugEnabled)

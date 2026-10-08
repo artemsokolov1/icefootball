@@ -242,9 +242,20 @@ struct FSkatePossessionTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
 	float AcquireCooldownAfterLoss = 0.35f;
 
-	/** An opponent may take the ball off the feet only after it has been held this long (s). */
+	/** An opponent may take the ball off the feet only after it has been held this long (s) ... */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
 	float StealProtectTime = 0.5f;
+
+	/** ... and only when the carrier let it stray farther than this (cm) from the carry point, or the taker pokes
+	 *  (the check button with the ball within PokeRange cm): a window of PokeWindow s in which the trap zone takes it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float StealLooseDistance = 30.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float PokeRange = 110.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float PokeWindow = 0.3f;
 
 	/** No re-trap for this long (s) after the ball bounced off the legs (short: a ball pinned at the board
 	 *  must not ping-pong between the board and the skates). */
@@ -394,6 +405,14 @@ struct FSkateBallControlTuning
 	/** Pass assist: a pass aimed within this angle (deg) of a teammate is sent to where that teammate will be. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "90"))
 	float PassAssistAngle = 40.f;
+
+	/** An assisted pass is at least fast enough to reach the teammate at PassArriveSpeed (cm/s), losing
+	 *  PassLossPerMetre (cm/s per metre) on the way. The charge only adds on top of that. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
+	float PassArriveSpeed = 350.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
+	float PassLossPerMetre = 40.f;
 
 	/** Pass ball speed (cm/s) at full charge. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))

@@ -187,11 +187,14 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		Query.bBallHeldByOther = B->IsHeldByOther(this);
 		if (Query.bBallHeldByOther)
 		{
-			// An opponent's ball may be taken off its feet once the protection time has passed.
+			// An opponent's ball may be taken once the protection time has passed, and only when it strayed from
+			// the carrier's feet or this skater pokes at it (the check button within PokeRange).
 			const USkateBallControlComponent* Other = Cast<USkateBallControlComponent>(B->GetHolder());
 			const ASkateCharacter* Carrier = Other ? Cast<ASkateCharacter>(Other->GetOwner()) : nullptr;
+			const FSkatePossessionTuning& PT = ControlTuning.Possession;
 			Query.bStealAllowed = Carrier && Carrier->GetTeam() != Skater->GetTeam()
-				&& Other->GetControlState().Possession.TimeHeld >= ControlTuning.Possession.StealProtectTime;
+				&& Other->GetControlState().Possession.TimeHeld >= PT.StealProtectTime
+				&& (Other->GetControlState().Possession.CarryError > PT.StealLooseDistance || Skater->IsPoking());
 		}
 		Query.BallTimeSinceImpulse = B->GetTimeSinceGameplayImpulse();
 		Query.bIncomingPass = B->IsPassFor(this);

@@ -537,16 +537,21 @@ FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tun
 	Impulse.Power = SkateMath::Clamp01(Power);
 	const FSkateVec2 Normal = ContactNormal(Query);
 	FSkateVec2 Desired = DesiredDirection(Query, 0.2f);
-	const float BaseSpeed = SkateMath::Lerp(Tuning.PushSpeed, SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed), Impulse.Power);
+	const float MaxSpeed = SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed);
+	float BaseSpeed = SkateMath::Lerp(Tuning.PushSpeed, MaxSpeed, Impulse.Power);
 	if (Query.bPassTargetValid)
 	{
-		// Pass assist: aimed roughly at the teammate -> lead it to where the teammate will be when the ball arrives.
+		// Pass assist: aimed roughly at the teammate -> lead it to where the teammate will be when the ball arrives,
+		// and make sure it gets there: the charge only adds on top of the speed the distance needs.
 		const FSkateVec2 ToMateNow = Query.PassTargetPos - Query.BallPos.XY();
 		const float Flight = ToMateNow.Size() / SkateMath::Max(BaseSpeed, 1.f);
-		const FSkateVec2 MateDir = (ToMateNow + Query.PassTargetVel * Flight).GetSafeNormal(Desired);
+		const FSkateVec2 ToMate = ToMateNow + Query.PassTargetVel * Flight;
+		const FSkateVec2 MateDir = ToMate.GetSafeNormal(Desired);
 		if (Desired.Dot(MateDir) >= std::cos(Tuning.PassAssistAngle * SkateMath::DegToRad))
 		{
 			Desired = MateDir;
+			const float Needed = Tuning.PassArriveSpeed + Tuning.PassLossPerMetre * ToMate.Size() / 100.f;
+			BaseSpeed = SkateMath::Clamp(Needed, BaseSpeed, MaxSpeed);
 		}
 	}
 	const FSkateVec2 Dir = LimitDeviation(Normal, Desired, Tuning.PushMaxDeviation);
