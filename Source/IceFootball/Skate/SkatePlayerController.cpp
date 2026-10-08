@@ -886,10 +886,13 @@ void ASkatePlayerController::OnKickReleased(const FInputActionValue& Value)
 
 void ASkatePlayerController::OnReset(const FInputActionValue& Value)
 {
-	if (ASkateArena* Arena = ASkateArena::Find(GetWorld()))
+	// Only after FULL TIME: a stray Menu press mid-match must not wipe the score.
+	ASkateArena* Arena = ASkateArena::Find(GetWorld());
+	if (!Arena || !Arena->IsMatchOver())
 	{
-		Arena->RestartMatch();
+		return;
 	}
+	Arena->RestartMatch();
 	if (CameraRig)
 	{
 		CameraRig->SnapToTarget();

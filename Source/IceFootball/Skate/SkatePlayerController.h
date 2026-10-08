@@ -7,7 +7,7 @@
 //   A            pass to the partner        J
 //   X (hold)     charge kick, release=kick  K
 //   Y            through pass               I
-//   Menu/Start   new match                  R
+//   Menu/Start   new match (after FULL TIME) R
 //   RB           ball to feet (test aid)    T
 //   View/Back    debug HUD on/off           F1
 //   D-pad Up     side / static camera       F2
