@@ -3,6 +3,7 @@
 #include "Components/CapsuleComponent.h"
 #include "IceFootball.h"
 #include "Skate/Core/SkateHit.h"
+#include "Skate/SkateArena.h"
 #include "Skate/SkateBall.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -157,19 +158,50 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 	MoveInput.Magnitude = LastStick.Magnitude;
 	MoveInput.Brake = LastBrake;
 	MoveInput.Boost = LastBoost;
-	MoveInput.bBackward = Input.bBackward;
+	// Without the ball the skater always faces it: a stick that leads away from the ball skates backwards.
+	if (BallControl && !BallControl->HasBall() && LastStick.Magnitude > 0.3f)
+	{
+		if (const ASkateBall* Ball = BallControl->GetBall())
+		{
+			const FVector ToBall = (Ball->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+			MoveInput.bBackward = LastStick.Direction.X * ToBall.X + LastStick.Direction.Y * ToBall.Y < -0.17f; // > 100 deg away
+		}
+	}
 	SkateMovement->SetSkateInput(IsStunned() ? FSkateMoveInput() : MoveInput);
 
 	if (BallControl)
 	{
-		// X with the ball at the feet or in reach: a shot. X otherwise: a body check.
-		const ESkateContactReason Reach = BallControl->GetReport().Reason;
-		const bool bBallPlayable = BallControl->HasBall() || Reach == ESkateContactReason::Reachable || Reach == ESkateContactReason::ActionReachOnly;
-		if (Input.bKickPressed && !bBallPlayable)
-		{
-			StartCheck();
-		}
-		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed && bBallPlayable, Input.bKickReleased);
+		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed, Input.bKickReleased);
+	}
+}
+
+bool ASkateCharacter::CanTakeNow() const
+{
+	const ASkateBall* Ball = BallControl ? BallControl->GetBall() : nullptr;
+	const USkateBallControlComponent* Holder = Ball ? Cast<USkateBallControlComponent>(Ball->GetHolder()) : nullptr;
+	const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
+	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
+	return Carrier && Carrier->GetTeam() != Team && TimeSinceTake >= PT.TakeCooldown && !IsStunned()
+		&& FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) <= PT.TakeRange;
+}
+
+void ASkateCharacter::StartTake()
+{
+	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
+	if (IsStunned() || TimeSinceTake < PT.TakeCooldown)
+	{
+		return;
+	}
+	if (BallControl && BallControl->TryTake(PT.TakeRange, PT.StealProtectTime, PT.TakeBallSpeed))
+	{
+		TimeSinceTake = 0.f;
+		return;
+	}
+	// No ball to take: a body check, when the match allows them.
+	const ASkateArena* Arena = ASkateArena::Find(GetWorld());
+	if (Arena && Arena->AreHitsEnabled())
+	{
+		StartCheck();
 	}
 }
 
@@ -181,18 +213,6 @@ void ASkateCharacter::StartCheck()
 		return;
 	}
 	TimeSinceCheck = 0.f;
-	// Poke: the ball is at an opponent's feet within reach.
-	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
-	if (const ASkateBall* Ball = BallControl ? BallControl->GetBall() : nullptr)
-	{
-		const USkateBallControlComponent* Holder = Cast<USkateBallControlComponent>(Ball->GetHolder());
-		const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
-		if (Carrier && Carrier->GetTeam() != Team && FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) < PT.PokeRange)
-		{
-			PokeLeft = PT.PokeWindow;
-			return;
-		}
-	}
 	CheckLeft = HT.CheckWindow;
 	const FSkateVec2 Heading = SkateMovement->GetSkateState().Heading;
 	SkateMovement->Velocity.X += Heading.X * HT.LungeSpeed;
@@ -250,6 +270,11 @@ void ASkateCharacter::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPri
 	{
 		return;
 	}
+	const ASkateArena* Arena = ASkateArena::Find(GetWorld());
+	if (Arena && !Arena->AreHitsEnabled())
+	{
+		return;
+	}
 	auto To2D = [](const FVector& V) { return FSkateVec2(static_cast<float>(V.X), static_cast<float>(V.Y)); };
 	const FSkateHitResult Result = FSkateHit::Resolve(HT, To2D(GetActorLocation()), To2D(SkateMovement->Velocity), IsChecking(),
 		To2D(Rival->GetActorLocation()), To2D(Rival->SkateMovement->Velocity), Rival->IsChecking());
@@ -289,8 +314,8 @@ void ASkateCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	StunLeft = FMath::Max(0.f, StunLeft - DeltaSeconds);
 	CheckLeft -= DeltaSeconds;
-	PokeLeft -= DeltaSeconds;
 	TimeSinceCheck += DeltaSeconds;
+	TimeSinceTake += DeltaSeconds;
 	TimeSinceHit += DeltaSeconds;
 	if (bDebugEnabled)
 	{

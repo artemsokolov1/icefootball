@@ -29,8 +29,6 @@ struct FSkateFrameInput
 	float CameraYawDeg = 0.f;
 	float BrakeRaw = 0.f;
 	float BoostRaw = 0.f;
-	/** Skate backwards (B / Left Ctrl held). */
-	bool bBackward = false;
 	bool bPushPressed = false;
 	bool bPushReleased = false;
 	bool bKickPressed = false;
@@ -67,11 +65,14 @@ public:
 	/** Shoved by a check: new velocity, no stick and no ball for Stun seconds. */
 	void ApplyHit(const FVector2D& NewVelocity, float Stun);
 	bool IsStunned() const { return StunLeft > 0.f; }
-	/** The check button. Ball at an opponent's feet within reach: a poke (a window in which the trap zone takes it).
-	 *  Otherwise a body check: a short forward lunge and a window in which contact with an opponent is a hit. */
+	/** The take button (B): an opponent's ball within TakeRange is knocked to our feet. Otherwise, when the match
+	 *  allows hits, a body check: a short forward lunge and a window in which contact with an opponent is a hit. */
+	void StartTake();
 	void StartCheck();
 	bool IsChecking() const { return CheckLeft > 0.f; }
-	bool IsPoking() const { return PokeLeft > 0.f; }
+	/** An opponent's ball is close enough for the take button right now (HUD ring / prompt). */
+	bool CanTakeNow() const;
+	float GetTimeSinceTake() const { return TimeSinceTake; }
 	/** Seconds since this skater delivered or took a check (HUD flash, cooldown). */
 	float GetTimeSinceHit() const { return TimeSinceHit; }
 
@@ -158,8 +159,8 @@ private:
 	FSkateFrameInput LastFrameInput;
 	float StunLeft = 0.f;
 	float CheckLeft = 0.f;
-	float PokeLeft = 0.f;
 	float TimeSinceCheck = 100.f;
+	float TimeSinceTake = 100.f;
 	float TimeSinceHit = 100.f;
 	float LastBrake = 0.f;
 	float LastBoost = 0.f;

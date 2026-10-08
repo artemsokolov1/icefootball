@@ -10,6 +10,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Skate/Core/SkateKeeper.h"
+#include "Skate/Core/SkateTuning.h"
 #include "SkateArena.generated.h"
 
 class ASkateBall;
@@ -130,6 +131,16 @@ struct FSkateArenaLayout
 	float FigureEightRadius = 400.f;
 };
 
+/** Match difficulty: the bots and the rules a child can handle first. */
+UENUM(BlueprintType)
+enum class ESkateDifficulty : uint8
+{
+	Easy,   // slow bots, soft shots, no body checks
+	Normal, // the default bots, body checks on
+};
+
+const TCHAR* SkateDifficultyName(ESkateDifficulty Difficulty);
+
 UCLASS()
 class ICEFOOTBALL_API ASkateArena : public AActor
 {
@@ -174,6 +185,11 @@ public:
 	bool SettleOnGround();
 
 	// ---- Match ----
+	ESkateDifficulty GetDifficulty() const { return Difficulty; }
+	void CycleDifficulty(int32 Direction);
+	bool AreHitsEnabled() const { return Difficulty != ESkateDifficulty::Easy; }
+	/** The AI knobs for the current difficulty, starting from a skater's own tuning. */
+	FSkateAITuning GetAITuning(const FSkateAITuning& Base) const;
 	int32 GetScore(int32 Team) const { return Team == 0 ? Score0 : Score1; }
 	int32 GetGoals() const { return Score0 + Score1; }
 	double GetLastGoalTime() const { return LastGoalTime; }
@@ -192,6 +208,9 @@ public:
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
 	FSkateArenaLayout Layout;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
+	ESkateDifficulty Difficulty = ESkateDifficulty::Easy;
 
 	/** Adds sun, sky light and atmosphere when the level has no directional light. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")

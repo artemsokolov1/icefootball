@@ -61,6 +61,9 @@ public:
 	/** The opposing (AI) skaters. */
 	const TArray<TWeakObjectPtr<ASkateCharacter>>& GetOpponents() const { return Opponents; }
 
+	/** First-match tutorial: 0 = chase the ball, 1 = shoot, 2 = take it from an opponent, 3 = done. */
+	int32 GetTutorialStep() const { return TutorialStep; }
+
 	/** Switch control to the teammate the player passes to, and to a teammate that gets the ball. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate")
 	bool bAutoSwitch = true;
@@ -101,8 +104,7 @@ private:
 	void OnBrakeReleased(const FInputActionValue& Value);
 	void OnBoost(const FInputActionValue& Value);
 	void OnBoostReleased(const FInputActionValue& Value);
-	void OnBackward(const FInputActionValue& Value);
-	void OnBackwardReleased(const FInputActionValue& Value);
+	void OnTake(const FInputActionValue& Value);
 	void OnSlowPressed(const FInputActionValue& Value);
 	void OnSlowReleased(const FInputActionValue& Value);
 
@@ -129,7 +131,7 @@ private:
 	UInputAction* IA_Slow = nullptr;
 	UInputAction* IA_Brake = nullptr;
 	UInputAction* IA_Boost = nullptr;
-	UInputAction* IA_Backward = nullptr;
+	UInputAction* IA_Take = nullptr;
 	UInputAction* IA_Push = nullptr;
 	UInputAction* IA_Kick = nullptr;
 	UInputAction* IA_Reset = nullptr;
@@ -161,9 +163,9 @@ private:
 	bool bSlowHeld = false;
 	float BrakeValue = 0.f;
 	float BoostValue = 0.f;
-	bool bBackwardHeld = false;
 	/** After a switch the stick still points where it did for the previous skater: it is ignored (the new skater
 	 *  keeps its AI behaviour, e.g. settling to receive the pass) until released, moved by a wide angle or a button. */
+	int32 TutorialStep = 0;
 	bool bStickLatched = false;
 	FVector2D LatchStick = FVector2D::ZeroVector;
 	FVector2D LastRawStick = FVector2D::ZeroVector;

@@ -33,6 +33,10 @@ public:
 	void QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease);
 
 	void ResetControl();
+	/** The ball was taken away: drop it now (the usual re-trap cooldown after a loss applies). */
+	void KnockLoose();
+	/** The take button: an opponent's ball within Range (cm), held at least Protect (s), is knocked to our feet. */
+	bool TryTake(float Range, float Protect, float BallSpeed);
 
 	/** Drops a pass / shot wind-up and pending buttons (control switched to the other skater). */
 	void CancelActions();

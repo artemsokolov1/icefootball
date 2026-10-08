@@ -105,7 +105,8 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	const int32 Cap = Pc ? Pc->GetFpsCap() : 0;
 
 	const USkateBallControlComponent* BallState = Skater->GetBallControl();
-	const FString Status = FString::Printf(TEXT("Preset %s  |  Ball %s  |  Camera %s  |  FPS cap %s  |  Debug: View / F1"),
+	const FString Status = FString::Printf(TEXT("Difficulty %s (D-pad L/R)  |  Preset %s  |  Ball %s  |  Camera %s  |  FPS cap %s  |  Debug: View / F1"),
+		Arena ? SkateDifficultyName(Arena->GetDifficulty()) : TEXT("?"),
 		ANSI_TO_TCHAR(SkateTuningPresets::Name(Skater->GetPreset())),
 		!Skater->IsBallInteractionEnabled() ? TEXT("interaction OFF (skating only)") : (BallState && BallState->HasBall() ? TEXT("AT FEET") : TEXT("loose")),
 		Rig && Rig->IsStaticMode() ? TEXT("STATIC") : TEXT("follow"),
@@ -151,6 +152,90 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 				DrawLine(Sx - Half, Sy - H + Row, Sx + Half, Sy - H + Row, Color, 1.f);
 			}
 			DrawText(FString::FromInt(Mate->GetTeamSlot() + 1), Color, Sx - 4.f, Sy - H - 20.f, GEngine->GetSmallFont(), bActive ? 1.4f : 1.f);
+		}
+	}
+
+	// Take ring around the controlled skater: lights up when an opponent's ball is inside.
+	{
+		const float Range = Skater->GetActiveTuning().BallControl.Possession.TakeRange;
+		const bool bHot = Skater->CanTakeNow();
+		const FLinearColor RingColor = bHot ? FLinearColor(1.f, 0.9f, 0.2f, 0.95f) : FLinearColor(1.f, 1.f, 1.f, 0.22f);
+		const FVector Base = Skater->GetActorLocation() - FVector(0.f, 0.f, 92.f);
+		FVector Prev = Project(Base + FVector(Range, 0.f, 0.f));
+		for (int32 Step = 1; Step <= 36; ++Step)
+		{
+			const float A = 2.f * PI * Step / 36.f;
+			const FVector Next = Project(Base + FVector(Range * FMath::Cos(A), Range * FMath::Sin(A), 0.f));
+			if (Prev.Z > 0.f && Next.Z > 0.f)
+			{
+				DrawLine(static_cast<float>(Prev.X), static_cast<float>(Prev.Y), static_cast<float>(Next.X), static_cast<float>(Next.Y), RingColor, bHot ? 2.f : 1.f);
+			}
+			Prev = Next;
+		}
+	}
+
+	// Loose ball: a marker above it, or an arrow at the screen edge when it is out of view.
+	if (Arena && Arena->GetBall() && !Arena->GetBall()->GetHolder())
+	{
+		const FVector Screen = Project(Arena->GetBall()->GetActorLocation() + FVector(0.f, 0.f, 40.f));
+		const bool bOnScreen = Screen.Z > 0.f && Screen.X > 0.f && Screen.X < Canvas->ClipX && Screen.Y > 0.f && Screen.Y < Canvas->ClipY;
+		const FLinearColor BallColor(1.f, 1.f, 1.f, 0.9f);
+		if (bOnScreen)
+		{
+			const float Sx = static_cast<float>(Screen.X);
+			const float Sy = static_cast<float>(Screen.Y);
+			for (float Row = 0.f; Row <= 10.f; Row += 1.f)
+			{
+				const float Half = 7.f * (1.f - Row / 10.f);
+				DrawLine(Sx - Half, Sy - 10.f + Row, Sx + Half, Sy - 10.f + Row, BallColor, 1.f);
+			}
+		}
+		else
+		{
+			// Direction from the screen centre to the ball (behind the camera: flip).
+			FVector2D Dir(static_cast<float>(Screen.X) - Canvas->ClipX * 0.5f, static_cast<float>(Screen.Y) - Canvas->ClipY * 0.5f);
+			if (Screen.Z <= 0.f) { Dir *= -1.f; }
+			Dir = Dir.GetSafeNormal();
+			const FVector2D Tip(Canvas->ClipX * 0.5f + Dir.X * (Canvas->ClipX * 0.5f - 30.f), Canvas->ClipY * 0.5f + Dir.Y * (Canvas->ClipY * 0.5f - 30.f));
+			const FVector2D Side(-Dir.Y, Dir.X);
+			const FVector2D A = Tip - Dir * 22.f + Side * 12.f;
+			const FVector2D B = Tip - Dir * 22.f - Side * 12.f;
+			DrawLine(Tip.X, Tip.Y, A.X, A.Y, BallColor, 3.f);
+			DrawLine(Tip.X, Tip.Y, B.X, B.Y, BallColor, 3.f);
+			DrawLine(A.X, A.Y, B.X, B.Y, BallColor, 3.f);
+		}
+	}
+
+	// Button prompts: only the actions that work right now.
+	if (Pc && BallState)
+	{
+		const bool bGamepad = Pc->WasLastInputGamepad();
+		TArray<FString> Prompts;
+		if (BallState->HasBall())
+		{
+			if (Pc->GetTeam().Num() > 1) { Prompts.Add(bGamepad ? TEXT("A  pass") : TEXT("J  pass")); }
+			Prompts.Add(bGamepad ? TEXT("X  shoot (hold = harder)") : TEXT("K  shoot (hold = harder)"));
+		}
+		else if (Skater->CanTakeNow())
+		{
+			Prompts.Add(bGamepad ? TEXT("B  TAKE THE BALL") : TEXT("L  TAKE THE BALL"));
+		}
+		float X = Canvas->ClipX * 0.5f - 90.f * Prompts.Num();
+		for (const FString& Prompt : Prompts)
+		{
+			const bool bTake = Prompt.Contains(TEXT("TAKE"));
+			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.5f), X - 6.f, Canvas->ClipY - 44.f, 176.f, 24.f);
+			DrawText(Prompt, bTake ? FLinearColor(1.f, 0.9f, 0.2f) : Info, X, Canvas->ClipY - 40.f, GEngine->GetSmallFont(), TextScale);
+			X += 180.f;
+		}
+		// First-match tutorial.
+		static const TCHAR* Steps[] = { TEXT("Catch the ball: skate into it"), TEXT("Press X to shoot (hold for a harder shot)"),
+			TEXT("Lost it? Get close to the opponent and press B to take the ball"), nullptr };
+		const int32 Step = Pc->GetTutorialStep();
+		if (Step >= 0 && Step < 3 && Steps[Step])
+		{
+			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.5f), Canvas->ClipX * 0.5f - 230.f, 50.f, 460.f, 26.f);
+			DrawText(Steps[Step], FLinearColor(1.f, 0.95f, 0.6f), Canvas->ClipX * 0.5f - 220.f, 54.f, GEngine->GetSmallFont(), TextScale);
 		}
 	}
 
@@ -418,8 +503,8 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 	CursorY = Canvas->ClipY - 7.f * LineHeight - 8.f;
 	Line(TEXT("World: green = velocity, blue = blades, yellow = stick, orange = lateral accel,"), Dim);
 	Line(TEXT("       reach zone green/cyan = trap/A-X allowed, grey = not reachable, yellow = carry point, magenta = last impulse"), Dim);
-	Line(TEXT("Pad: LS move | LT brake | RT boost | B skate backwards | A push | X hold/release kick (no ball: body check) | Y reset | RB ball to feet"), Dim);
-	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R preset | D-pad Down FPS cap | Menu ball on/off"), Dim);
-	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | LCtrl backwards | J push | K kick / check | R reset | T ball"), Dim);
+	Line(TEXT("Pad: LS move | LT brake | RT boost | A pass | X hold/release shot | B take the ball (no ball near: body check on Normal) | Y new match | RB ball to feet"), Dim);
+	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R difficulty | D-pad Down FPS cap | Menu ball on/off"), Dim);
+	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J pass | K shot | L / LCtrl take | R new match | T ball"), Dim);
 	Line(TEXT("      F1 debug | F2 camera | 1/2/3 preset | F3 FPS cap | F4 ball on/off"), Dim);
 }

@@ -39,10 +39,12 @@ namespace SkateTeamTestsDetail
 		bool bAI = false;
 		FSkateSkaterBrain Brain;
 		ESkateSkaterMode Mode = ESkateSkaterMode::Wait;
-		/** Stun left after a body check (s), check-button window left (s), poke window left (s). */
+		/** Stun left after a body check (s), check-button window left (s), take-button rest left (s). */
 		float Stun = 0.f;
 		float CheckLeft = 0.f;
-		float PokeLeft = 0.f;
+		float TakeCooldown = 0.f;
+		/** Scripted skaters: press the take button this frame. */
+		bool bTakePressed = false;
 		int Hits = 0;
 		int Impulses = 0;
 		int BodyBlocks = 0;
@@ -81,6 +83,7 @@ namespace SkateTeamTestsDetail
 		bool Chaser[2] = { true, true };
 
 		bool bKeeper = false;
+		bool bHitsEnabled = true;
 		FSkateKeeperTuning KT;
 		FSkateKeeperState K;
 		FSkateGoalFrame Goal;
@@ -137,7 +140,7 @@ namespace SkateTeamTestsDetail
 			// and only when it strayed from the carrier's feet or this skater pokes at it.
 			Q.bStealAllowed = Q.bBallHeldByOther && Holder != KeeperHolder && Team[Holder] != Team[Index]
 				&& S[Holder].Control.Possession.TimeHeld >= T.BallControl.Possession.StealProtectTime
-				&& (S[Holder].Control.Possession.CarryError > T.BallControl.Possession.StealLooseDistance || S[Index].PokeLeft > 0.f);
+				&& S[Holder].Control.Possession.CarryError > T.BallControl.Possession.StealLooseDistance;
 			Q.BallTimeSinceImpulse = BallSinceImpulse;
 			Q.bIncomingPass = LastKind == ESkateImpulseKind::Push && LastSource != Index;
 			Q.bPassTargetValid = Team[1 - Index] == Team[Index];
@@ -182,25 +185,35 @@ namespace SkateTeamTestsDetail
 			{
 				S[Index].Stun = SkateMath::Max(0.f, S[Index].Stun - Dt);
 				S[Index].CheckLeft -= Dt;
-				S[Index].PokeLeft -= Dt;
+				S[Index].TakeCooldown -= Dt;
+				bool bButton = S[Index].bTakePressed;
+				S[Index].bTakePressed = false;
 				if (S[Index].bAI)
 				{
 					const FSkateSkaterDecision Dec = FSkateSkaterAI::Think(AIView(Index), T.AI, S[Index].Brain, Dt);
 					Used[Index] = Dec.Move;
 					UsedAct[Index] = Dec.Actions;
 					S[Index].Mode = Dec.Mode;
-					if (Dec.bCheck && S[Index].CheckLeft <= 0.f && S[Index].PokeLeft <= 0.f)
+					bButton |= Dec.bCheck;
+				}
+				if (bButton && S[Index].TakeCooldown <= 0.f && S[Index].Stun <= 0.f)
+				{
+					// The take button (same as USkateBallControlComponent::TryTake): an opponent's ball within TakeRange,
+					// held past the protection time, is knocked to the taker's feet. No ball to take: a body check.
+					const FSkatePossessionTuning& PT = T.BallControl.Possession;
+					const bool bOpponentBall = Holder != NoHolder && Holder != KeeperHolder && Team[Holder] != Team[Index];
+					if (bOpponentBall && (BallPos.XY() - S[Index].Pos).Size() <= PT.TakeRange && S[Holder].Control.Possession.TimeHeld >= PT.StealProtectTime)
 					{
-						// The check button: a poke with the ball at an opponent's feet within reach, otherwise a body check.
-						const bool bOpponentBall = Holder != NoHolder && Holder != KeeperHolder && Team[Holder] != Team[Index];
-						if (bOpponentBall && (BallPos.XY() - S[Index].Pos).Size() < T.BallControl.Possession.PokeRange)
-						{
-							S[Index].PokeLeft = T.BallControl.Possession.PokeWindow;
-						}
-						else
-						{
-							S[Index].CheckLeft = T.Hit.CheckWindow;
-						}
+						FSkateBallControl::ReleasePossession(S[Holder].Control, ESkatePossessionLoss::Taken);
+						Holder = NoHolder;
+						const FSkateVec2 Feet = S[Index].Pos + S[Index].State.Heading * 45.f;
+						BallVel = FSkateVec3((Feet - BallPos.XY()).GetSafeNormal() * PT.TakeBallSpeed, 0.f);
+						Impulse(ESkateImpulseKind::Touch, Index);
+						S[Index].TakeCooldown = PT.TakeCooldown;
+					}
+					else if (bHitsEnabled && S[Index].CheckLeft <= 0.f)
+					{
+						S[Index].CheckLeft = T.Hit.CheckWindow;
 					}
 				}
 				if (S[Index].Stun > 0.f)
@@ -627,7 +640,7 @@ namespace SkateTeamTestsDetail
 		const FSkateVec2 V = Sim.S[0].State.Velocity;
 		const FSkateVec2 Hd = Sim.S[0].State.Heading;
 		const float Forward = Sim.T.Movement.MaxSpeed;
-		R.bPassed = V.X > 0.4f * Forward && V.X < 0.75f * Forward && Hd.X < -0.9f && Sim.S[0].Pos.X > 300.f;
+		R.bPassed = V.X > 0.5f * Forward && V.X < 0.95f * Forward && Hd.X < -0.9f && Sim.S[0].Pos.X > 300.f;
 		R.Details = Fmt("stick +X with the backward button: after 2 s moving at %.0f cm/s along +X (forward max %.0f), blades point %.2f along X, travelled %.0f cm",
 			V.X, Forward, Hd.X, Sim.S[0].Pos.X);
 		Out.push_back(R);
@@ -669,7 +682,7 @@ namespace SkateTeamTestsDetail
 
 	void TestNoStealWithoutPoke(std::vector<FSkateTestResult>& Out)
 	{
-		FSkateTestResult R("Match.NoStealWithoutThePoke");
+		FSkateTestResult R("Match.NoStealWithoutTheTakeButton");
 		const float Dt = 1.f / 60.f;
 		FTeamSim Sim;
 		Sim.Team[1] = 1;
@@ -691,7 +704,7 @@ namespace SkateTeamTestsDetail
 
 	void TestPokeTakesTheBall(std::vector<FSkateTestResult>& Out)
 	{
-		FSkateTestResult R("Match.PokeTakesTheBall");
+		FSkateTestResult R("Match.TakeButtonTakesTheBall");
 		const float Dt = 1.f / 60.f;
 		FTeamSim Sim;
 		Sim.Team[1] = 1;
@@ -703,15 +716,12 @@ namespace SkateTeamTestsDetail
 		{
 			In[0].Brake = 1.f;
 			In[1] = Stick(FSkateVec2(-1.f, 0.f), 0.5f);
-			// Pokes whenever the ball is within reach (the button, pressed again after each window).
-			if (Sim.S[1].PokeLeft <= 0.f && (Sim.BallPos.XY() - Sim.S[1].Pos).Size() < Sim.T.BallControl.Possession.PokeRange)
-			{
-				Sim.S[1].PokeLeft = Sim.T.BallControl.Possession.PokeWindow;
-			}
+			// Presses the take button whenever the ball is within range.
+			Sim.S[1].bTakePressed = (Sim.BallPos.XY() - Sim.S[1].Pos).Size() <= Sim.T.BallControl.Possession.TakeRange;
 			if (Took < 0.f && Sim.S[1].Control.Possession.bPossessed) { Took = Time; }
 		});
 		R.bPassed = Took > 0.f && Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Taken;
-		R.Details = Fmt("same approach with the poke: ball taken after %.2fs, carrier's loss %s", Took, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss));
+		R.Details = Fmt("same approach with the take button: ball taken after %.2fs, carrier's loss %s", Took, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss));
 		Out.push_back(R);
 	}
 

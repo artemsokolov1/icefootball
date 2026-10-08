@@ -56,6 +56,44 @@ void USkateBallControlComponent::CancelActions()
 	PendingActions = FSkateBallActionInput();
 }
 
+void USkateBallControlComponent::KnockLoose()
+{
+	FSkateBallControl::ReleasePossession(ControlState, ESkatePossessionLoss::Taken);
+	if (ASkateBall* B = Ball.Get())
+	{
+		if (B->GetHolder() == this)
+		{
+			B->ClearHolder(this);
+			B->SetCarried(false);
+		}
+	}
+}
+
+bool USkateBallControlComponent::TryTake(float Range, float Protect, float BallSpeed)
+{
+	ASkateCharacter* Skater = Cast<ASkateCharacter>(GetOwner());
+	ASkateBall* B = FindBall();
+	if (!Skater || !B)
+	{
+		return false;
+	}
+	USkateBallControlComponent* Other = Cast<USkateBallControlComponent>(const_cast<UObject*>(B->GetHolder()));
+	const ASkateCharacter* Carrier = Other ? Cast<ASkateCharacter>(Other->GetOwner()) : nullptr;
+	if (!Carrier || Carrier->GetTeam() == Skater->GetTeam() || Other->GetControlState().Possession.TimeHeld < Protect
+		|| FVector::Dist2D(B->GetActorLocation(), Skater->GetActorLocation()) > Range)
+	{
+		return false;
+	}
+	Other->KnockLoose();
+	// The ball goes to our feet: the normal trap picks it up next frame.
+	const FVector Feet = Skater->GetActorLocation() + Skater->GetActorForwardVector().GetSafeNormal2D() * 45.f;
+	const FVector Dir = (Feet - B->GetActorLocation()).GetSafeNormal2D();
+	B->ApplyGameplayVelocity(Dir * BallSpeed, ESkateImpulseKind::Touch, this);
+	UE_LOG(LogIceSkate, Verbose, TEXT("TAKE: team %d slot %d takes the ball from team %d slot %d"), Skater->GetTeam(), Skater->GetTeamSlot(),
+		Carrier->GetTeam(), Carrier->GetTeamSlot());
+	return true;
+}
+
 void USkateBallControlComponent::ResetControl()
 {
 	FSkateBallControl::Reset(ControlState);
@@ -187,14 +225,13 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		Query.bBallHeldByOther = B->IsHeldByOther(this);
 		if (Query.bBallHeldByOther)
 		{
-			// An opponent's ball may be taken once the protection time has passed, and only when it strayed from
-			// the carrier's feet or this skater pokes at it (the check button within PokeRange).
+			// Without the take button an opponent's ball is only taken when it strayed from the carrier's feet.
 			const USkateBallControlComponent* Other = Cast<USkateBallControlComponent>(B->GetHolder());
 			const ASkateCharacter* Carrier = Other ? Cast<ASkateCharacter>(Other->GetOwner()) : nullptr;
 			const FSkatePossessionTuning& PT = ControlTuning.Possession;
 			Query.bStealAllowed = Carrier && Carrier->GetTeam() != Skater->GetTeam()
 				&& Other->GetControlState().Possession.TimeHeld >= PT.StealProtectTime
-				&& (Other->GetControlState().Possession.CarryError > PT.StealLooseDistance || Skater->IsPoking());
+				&& Other->GetControlState().Possession.CarryError > PT.StealLooseDistance;
 		}
 		Query.BallTimeSinceImpulse = B->GetTimeSinceGameplayImpulse();
 		Query.bIncomingPass = B->IsPassFor(this);

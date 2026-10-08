@@ -97,9 +97,10 @@ void ASkatePlayerController::BuildInputMappings()
 	Imc->MapKey(IA_Boost, EKeys::Gamepad_RightTriggerAxis);
 	Imc->MapKey(IA_Boost, EKeys::LeftShift);
 
-	IA_Backward = MakeAction(TEXT("IA_Skate_Backward"), EInputActionValueType::Boolean);
-	Imc->MapKey(IA_Backward, EKeys::Gamepad_FaceButton_Right);
-	Imc->MapKey(IA_Backward, EKeys::LeftControl);
+	IA_Take = MakeAction(TEXT("IA_Skate_Take"), EInputActionValueType::Boolean);
+	Imc->MapKey(IA_Take, EKeys::Gamepad_FaceButton_Right);
+	Imc->MapKey(IA_Take, EKeys::L);
+	Imc->MapKey(IA_Take, EKeys::LeftControl);
 
 	// ---- Ball ----
 	IA_Push = MakeAction(TEXT("IA_Skate_Push"), EInputActionValueType::Boolean);
@@ -173,8 +174,7 @@ void ASkatePlayerController::SetupInputComponent()
 	Eic->BindAction(IA_Brake, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBrakeReleased);
 	Eic->BindAction(IA_Boost, ETriggerEvent::Triggered, this, &ASkatePlayerController::OnBoost);
 	Eic->BindAction(IA_Boost, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBoostReleased);
-	Eic->BindAction(IA_Backward, ETriggerEvent::Started, this, &ASkatePlayerController::OnBackward);
-	Eic->BindAction(IA_Backward, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBackwardReleased);
+	Eic->BindAction(IA_Take, ETriggerEvent::Started, this, &ASkatePlayerController::OnTake);
 
 	Eic->BindAction(IA_Push, ETriggerEvent::Started, this, &ASkatePlayerController::OnPushPressed);
 	Eic->BindAction(IA_Push, ETriggerEvent::Completed, this, &ASkatePlayerController::OnPushReleased);
@@ -416,9 +416,53 @@ void ASkatePlayerController::UpdateAutoSwitch()
 			}
 		}
 	}
+	// An opponent has the ball: the player is always the skater nearest to it (the defender that matters).
+	if (Target == INDEX_NONE && bAutoSwitch && CachedArena.IsValid() && CachedArena->GetBall())
+	{
+		const ASkateBall* Ball = CachedArena->GetBall();
+		const USkateBallControlComponent* HolderComp = Cast<USkateBallControlComponent>(Ball->GetHolder());
+		const ASkateCharacter* Carrier = HolderComp ? Cast<ASkateCharacter>(HolderComp->GetOwner()) : nullptr;
+		if (Carrier && Carrier->GetTeam() != 0)
+		{
+			int32 Nearest = INDEX_NONE;
+			float NearestDist = TNumericLimits<float>::Max();
+			float ActiveDist = TNumericLimits<float>::Max();
+			for (int32 Index = 0; Index < Team.Num(); ++Index)
+			{
+				const ASkateCharacter* Member = Team[Index].Get();
+				const float Dist = Member ? static_cast<float>(FVector::Dist2D(Member->GetActorLocation(), Ball->GetActorLocation())) : NearestDist;
+				if (Member && Dist < NearestDist)
+				{
+					NearestDist = Dist;
+					Nearest = Index;
+				}
+				if (Index == ActiveIndex && Member)
+				{
+					ActiveDist = Dist;
+				}
+			}
+			if (Nearest != INDEX_NONE && Nearest != ActiveIndex && NearestDist < ActiveDist - 150.f) // hysteresis: no flip-flop
+			{
+				Target = Nearest;
+			}
+		}
+	}
 	if (Target != INDEX_NONE)
 	{
 		SwitchTo(Target);
+	}
+	// Tutorial steps: got the ball -> shot it -> took it from an opponent.
+	if (const ASkateCharacter* Active = GetSkater())
+	{
+		const USkateBallControlComponent* Ball = Active->GetBallControl();
+		if (TutorialStep == 0 && Ball && Ball->HasBall())
+		{
+			TutorialStep = 1;
+		}
+		else if (TutorialStep == 1 && Ball && Ball->GetLastImpulse().Kind == ESkateImpulseKind::Kick && Ball->GetTimeSinceLastImpulse() < 0.1f)
+		{
+			TutorialStep = 2;
+		}
 	}
 }
 
@@ -581,7 +625,7 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 		}
 	}
 
-	FSkateSkaterDecision Decision = FSkateSkaterAI::Think(View, Skater->GetActiveTuning().AI, Brain, GetWorld()->GetDeltaSeconds());
+	FSkateSkaterDecision Decision = FSkateSkaterAI::Think(View, Arena->GetAITuning(Skater->GetActiveTuning().AI), Brain, GetWorld()->GetDeltaSeconds());
 	if (Arena->IsGoalPause() || Arena->IsFaceOff() || Arena->GetTimeSinceDrop() < Skater->GetActiveTuning().AI.FaceOffReaction)
 	{
 		Decision = FSkateSkaterDecision();
@@ -590,7 +634,7 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 	Skater->ApplyMoveInput(Decision.Move, &Decision.Actions);
 	if (Decision.bCheck)
 	{
-		Skater->StartCheck();
+		Skater->StartTake();
 	}
 	if (Mode != static_cast<uint8>(Decision.Mode))
 	{
@@ -661,7 +705,6 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		FrameInput.CameraYawDeg = CameraRig ? CameraRig->GetControlYaw() : 0.f;
 		FrameInput.BrakeRaw = BrakeValue;
 		FrameInput.BoostRaw = BoostValue;
-		FrameInput.bBackward = bBackwardHeld;
 		FrameInput.bPushPressed = bPushEdge;
 		FrameInput.bPushReleased = bPushReleaseEdge;
 		FrameInput.bKickPressed = bKickPressEdge;
@@ -735,14 +778,20 @@ void ASkatePlayerController::OnBrakeReleased(const FInputActionValue& Value)
 	BrakeValue = 0.f;
 }
 
-void ASkatePlayerController::OnBackward(const FInputActionValue& Value)
+void ASkatePlayerController::OnTake(const FInputActionValue& Value)
 {
-	bBackwardHeld = true;
-}
-
-void ASkatePlayerController::OnBackwardReleased(const FInputActionValue& Value)
-{
-	bBackwardHeld = false;
+	ASkateCharacter* Skater = GetSkater();
+	if (!Skater || bBotsVsBots || (CachedArena.IsValid() && (CachedArena->IsFaceOff() || CachedArena->IsGoalPause())))
+	{
+		return;
+	}
+	bStickLatched = false;
+	const float Before = Skater->GetTimeSinceTake();
+	Skater->StartTake();
+	if (Skater->GetTimeSinceTake() < Before && TutorialStep == 2)
+	{
+		TutorialStep = 3;
+	}
 }
 
 void ASkatePlayerController::OnBoost(const FInputActionValue& Value)
@@ -829,17 +878,17 @@ void ASkatePlayerController::OnToggleCamera(const FInputActionValue& Value)
 
 void ASkatePlayerController::OnPresetNext(const FInputActionValue& Value)
 {
-	if (ASkateCharacter* Skater = GetSkater())
+	if (ASkateArena* Arena = ASkateArena::Find(GetWorld()))
 	{
-		Skater->CyclePreset(+1);
+		Arena->CycleDifficulty(+1);
 	}
 }
 
 void ASkatePlayerController::OnPresetPrev(const FInputActionValue& Value)
 {
-	if (ASkateCharacter* Skater = GetSkater())
+	if (ASkateArena* Arena = ASkateArena::Find(GetWorld()))
 	{
-		Skater->CyclePreset(-1);
+		Arena->CycleDifficulty(-1);
 	}
 }
 

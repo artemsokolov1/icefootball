@@ -72,7 +72,7 @@ struct FSkateMovementTuning
 
 	/** Backward skating reaches this fraction of the forward speeds. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.1", ClampMax = "1"))
-	float BackwardSpeedScale = 0.6f;
+	float BackwardSpeedScale = 0.8f;
 
 	/** Time constant (s) of the speed approach to the stick's target speed. ~3x this is the time to 95% of top speed.
 	 *  Acceleration is highest at the start (fast first response) and fades near the target (smooth top-out). */
@@ -242,20 +242,25 @@ struct FSkatePossessionTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
 	float AcquireCooldownAfterLoss = 0.35f;
 
-	/** An opponent may take the ball off the feet only after it has been held this long (s) ... */
+	/** The take button (B): an opponent's ball closer than TakeRange (cm) is knocked to the taker's feet, once it has
+	 *  been held for StealProtectTime (s); the button then rests for TakeCooldown (s). One rule, no angles. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
-	float StealProtectTime = 0.5f;
+	float TakeRange = 200.f;
 
-	/** ... and only when the carrier let it stray farther than this (cm) from the carry point, or the taker pokes
-	 *  (the check button with the ball within PokeRange cm): a window of PokeWindow s in which the trap zone takes it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float StealProtectTime = 0.7f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float TakeCooldown = 1.0f;
+
+	/** Speed (cm/s) the knocked-loose ball gets towards the taker's feet. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float TakeBallSpeed = 500.f;
+
+	/** Without the button a carried ball is only taken when the carrier let it stray farther than this (cm)
+	 *  from the carry point (dribbling error, board, shove): it counts as loose. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
 	float StealLooseDistance = 30.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
-	float PokeRange = 110.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
-	float PokeWindow = 0.3f;
 
 	/** No re-trap for this long (s) after the ball bounced off the legs (short: a ball pinned at the board
 	 *  must not ping-pong between the board and the skates). */
