@@ -177,9 +177,9 @@ namespace SkateTeamTestsDetail
 			View.BallDamping = T.BallPhysics.LinearDamping;
 			View.BallRollingResistance = T.BallPhysics.RollingResistance;
 			View.bChaser = Chaser[Index];
-			View.bMateValid = Team[1 - Index] == Team[Index];
-			View.MatePos = S[1 - Index].Pos;
-			View.MateVel = S[1 - Index].State.Velocity;
+			View.MateCount = Team[1 - Index] == Team[Index] ? 1 : 0;
+			View.MatePos[0] = S[1 - Index].Pos;
+			View.MateVel[0] = S[1 - Index].State.Velocity;
 			View.bThreatValid = Team[1 - Index] != Team[Index];
 			View.ThreatPos = S[1 - Index].Pos;
 			return View;
@@ -699,6 +699,67 @@ namespace SkateTeamTestsDetail
 		R.bPassed = KickAt > 0.6f && ErrGoal < 15.f && Sim.S[1].BodyBlocks == 0;
 		R.Details = Fmt("X released 0.2 s after the pass was played: shot fired %.2fs after the pass (kick buffer %.2fs), %.1f deg from the goal, bounces %d",
 			KickAt, Sim.T.BallControl.KickBufferTime, ErrGoal, Sim.S[1].BodyBlocks);
+		Out.push_back(R);
+	}
+
+	// Three a side: the AI alone (no ball sim), a hand-made view.
+	FSkateSkaterView ThreeView()
+	{
+		FSkateSkaterView View;
+		View.bBallValid = true;
+		View.AttackGoal = FSkateVec2(2600.f, 0.f);
+		View.OwnGoal = FSkateVec2(-2600.f, 0.f);
+		View.BallDamping = 0.35f;
+		View.BallRollingResistance = 50.f;
+		return View;
+	}
+
+	void TestCarrierPicksTheBetterMate(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.CarrierPassesToTheBetterPlacedMate");
+		FSkateSkaterView View = ThreeView();
+		View.Pos = FSkateVec2(-1000.f, 0.f);
+		View.Heading = FSkateVec2(1.f, 0.f);
+		View.BallPos = View.Pos + FSkateVec2(60.f, 0.f);
+		View.BallOwner = ESkateBallOwner::Me;
+		View.MateCount = 2;
+		View.MatePos[0] = FSkateVec2(-1600.f, 600.f); // behind me
+		View.MatePos[1] = FSkateVec2(0.f, -700.f);    // 10 m nearer the goal
+		FSkateSkaterBrain Brain;
+		const FSkateSkaterDecision D = FSkateSkaterAI::Think(View, FSkateAITuning(), Brain, 1.f / 60.f);
+		const float Err = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(D.Move.Direction.Dot((View.MatePos[1] - View.Pos).GetSafeNormal()), -1.f, 1.f));
+		R.bPassed = D.Mode == ESkateSkaterMode::Pass && D.Actions.bPushPressed && Err < 5.f;
+		R.Details = Fmt("mode %s, push %d, aim %.1f deg off the forward mate", SkateSkaterModeName(D.Mode), D.Actions.bPushPressed ? 1 : 0, Err);
+		Out.push_back(R);
+	}
+
+	void TestThirdSkaterRoles(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.ThirdSkaterHoldsBackOrMarks");
+		FSkateSkaterBrain Brain;
+		// A teammate carries the ball: the skater told to hold back defends, the free one supports.
+		FSkateSkaterView View = ThreeView();
+		View.Pos = FSkateVec2(-500.f, 800.f);
+		View.Heading = FSkateVec2(1.f, 0.f);
+		View.BallPos = FSkateVec2(0.f, 0.f);
+		View.BallOwner = ESkateBallOwner::Teammate;
+		View.bChaser = false;
+		View.bHoldBack = true;
+		const FSkateSkaterDecision Back = FSkateSkaterAI::Think(View, FSkateAITuning(), Brain, 1.f / 60.f);
+		View.bHoldBack = false;
+		const FSkateSkaterDecision Free = FSkateSkaterAI::Think(View, FSkateAITuning(), Brain, 1.f / 60.f);
+		// An opponent carries it: the free skater marks the other opponent, goal-side of it.
+		View.BallOwner = ESkateBallOwner::Opponent;
+		View.bThreatValid = true;
+		View.ThreatPos = View.BallPos;
+		View.bMarkValid = true;
+		View.MarkPos = FSkateVec2(-1200.f, -600.f);
+		const FSkateSkaterDecision Mark = FSkateSkaterAI::Think(View, FSkateAITuning(), Brain, 1.f / 60.f);
+		const FSkateVec2 Spot = View.MarkPos + (View.OwnGoal - View.MarkPos).GetSafeNormal() * FSkateSkaterAI::MarkDistance;
+		const float MarkErr = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(Mark.Move.Direction.Dot((Spot - View.Pos).GetSafeNormal()), -1.f, 1.f));
+		R.bPassed = Back.Mode == ESkateSkaterMode::Defend && Free.Mode == ESkateSkaterMode::Support && Mark.Mode == ESkateSkaterMode::Mark && MarkErr < 5.f;
+		R.Details = Fmt("held back: %s, free: %s, opponent ball: %s heading %.1f deg off the goal-side spot", SkateSkaterModeName(Back.Mode),
+			SkateSkaterModeName(Free.Mode), SkateSkaterModeName(Mark.Mode), MarkErr);
 		Out.push_back(R);
 	}
 
@@ -1406,6 +1467,8 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestOneTouchWaitsForPass(Out);
 	TestPassReachesFarTeammate(Out);
 	TestNoStealFromTeammate(Out);
+	TestCarrierPicksTheBetterMate(Out);
+	TestThirdSkaterRoles(Out);
 	TestTeammateSupportsAhead(Out);
 	TestTeammateIgnoresOwnPass(Out);
 	TestTeammateFetches(Out);

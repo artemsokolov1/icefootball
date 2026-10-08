@@ -118,13 +118,13 @@ void ASkateBall::HoldAt(const FVector& Location)
 	BallMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
 }
 
-void ASkateBall::ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source, int32 SourceTeam)
+void ASkateBall::ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source, int32 SourceTeam, const UObject* Receiver)
 {
 	bHeldInHands = false;
 	BallMesh->SetEnableGravity(true);
 	SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
 	BallMesh->WakeRigidBody();
-	ApplyGameplayVelocity(Velocity, ESkateImpulseKind::Push, Source, SourceTeam);
+	ApplyGameplayVelocity(Velocity, ESkateImpulseKind::Push, Source, SourceTeam, Receiver);
 }
 
 void ASkateBall::DropHold()
@@ -145,7 +145,7 @@ float ASkateBall::GetTimeSinceGameplayImpulse() const
 
 bool ASkateBall::IsPassFor(const UObject* Receiver, int32 ReceiverTeam) const
 {
-	return IsPassFromOther(Receiver) && LastImpulseTeam == ReceiverTeam;
+	return IsPassFromOther(Receiver) && LastImpulseTeam == ReceiverTeam && (!LastImpulseReceiver.IsValid() || LastImpulseReceiver.Get() == Receiver);
 }
 
 bool ASkateBall::IsPassFromOther(const UObject* Receiver) const
@@ -158,7 +158,7 @@ bool ASkateBall::IsPassFrom(const UObject* Source) const
 	return LastImpulseKind == ESkateImpulseKind::Push && LastImpulseSource.Get() == Source && GetTimeSinceGameplayImpulse() < 2.f;
 }
 
-void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source, int32 SourceTeam)
+void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source, int32 SourceTeam, const UObject* Receiver)
 {
 	const double Now = GetWorld()->GetTimeSeconds();
 	const double Gap = Now - LastImpulseTime;
@@ -172,6 +172,7 @@ void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulse
 	LastImpulseTime = Now;
 	LastImpulseKind = Kind;
 	LastImpulseSource = Source;
+	LastImpulseReceiver = Receiver;
 	LastImpulseTeam = SourceTeam;
 	++GameplayImpulses;
 

@@ -47,14 +47,18 @@ struct FSkateArenaLayout
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	FVector2D CentreSpawn = FVector2D(150.f, 0.f);
 
-	/** Slot 1 of each team: X back from the centre, Y to the side (both mirrored per team). */
+	/** Slots 1 and 2 of each team: X back from the centre, Y to either side (both mirrored per team). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	FVector2D WingSpawn = FVector2D(900.f, 800.f);
+
+	/** Skaters per team (1-3): the centre and up to two wings. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout", meta = (ClampMin = 1, ClampMax = 3))
+	int32 SkatersPerTeam = 3;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	FVector2D BallSpawn = FVector2D(0.f, 0.f);
 
-	/** Spawns the teammate and the two opponents (the player's own skater comes from the game mode). */
+	/** Spawns the teammates and the opponents (the player's own skater comes from the game mode). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	bool bSpawnTeams = true;
 
@@ -159,7 +163,7 @@ public:
 
 	/** Team 0 slot 0: the player's own skater. */
 	FTransform GetPlayerSpawnTransform() const { return GetSpawnTransform(0, 0); }
-	/** Face-off spot of a skater: team 0 / 1, slot 0 (centre) / 1 (wing). */
+	/** Face-off spot of a skater: team 0 / 1, slot 0 (centre) / 1 / 2 (wings). */
 	FTransform GetSpawnTransform(int32 Team, int32 Slot) const;
 	/** The goal mouth in world space. Goal 0 is at +X (attacked by team 0), goal 1 at -X. */
 	FSkateGoalFrame GetGoalFrame(int32 GoalIndex = 0) const;

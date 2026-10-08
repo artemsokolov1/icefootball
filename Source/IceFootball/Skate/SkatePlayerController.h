@@ -15,8 +15,8 @@
 //   Menu/Start   ball interaction on/off    F4
 //   LB           switch skater              Q
 //
-// Two skaters on the team, both played by this controller: the input drives the ACTIVE skater,
-// the other one gets AI input (FSkateSkaterAI: chase, support, defend; the same AI drives the opponents;
+// Up to three skaters on the team, all played by this controller: the input drives the ACTIVE skater,
+// the others get AI input (FSkateSkaterAI: chase, support, defend, mark; the same AI drives the opponents;
 // fetch a loose ball / hold the ball). Control switches with LB / Q, and automatically to the
 // teammate every pass is played to and to a teammate that just got the ball.
 //
@@ -92,9 +92,11 @@ private:
 	void UpdateAutoSwitch();
 	/** Every skater the player is not controlling gets its input from FSkateSkaterAI. */
 	void DriveAI();
-	/** Through-pass target of every own skater: ahead of its nearest teammate towards the goal. */
+	/** Through-pass target of every own skater: ahead of its pass partner towards the goal. */
 	void UpdateThroughTargets();
-	void DriveSkater(ASkateCharacter* Skater, int32 Team, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode, bool bActions = true);
+	/** Roles of one team this frame: the chaser (nearest to the ball) and who holds back (nearest to the own goal). */
+	void DriveTeam(const TArray<TWeakObjectPtr<ASkateCharacter>>& Group, int32 Team, TArray<FSkateSkaterBrain>& Brains, TArray<uint8>& Modes);
+	void DriveSkater(ASkateCharacter* Skater, int32 Team, bool bChaser, bool bHoldBack, FSkateSkaterBrain& Brain, uint8& Mode, bool bActions = true);
 	void SyncTeamSettings();
 
 	// Axis handlers

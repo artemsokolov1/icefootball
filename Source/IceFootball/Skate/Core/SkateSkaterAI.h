@@ -1,10 +1,10 @@
 // Ice skating prototype - AI for every skater the player is not controlling (engine independent).
 //
-// Used for the player's teammate and for both opponents. Two roles, decided by the caller: the
-// "chaser" (nearest to the ball on its team) goes for the ball or presses the carrier; the other one
-// supports an attacking teammate or drops back between the ball and the own goal. With the ball: skate
-// at the goal, pass to a teammate that is clearly ahead, shoot at the far corner once close enough and
-// facing the goal. (The player's teammate hands control to the player as soon as it traps the ball, so
+// Used for the player's teammates and for the opponents. Roles, decided by the caller: the "chaser"
+// (nearest to the ball on its team) goes for the ball or presses the carrier; the one told to hold back
+// (nearest to the own goal) drops between the ball and the own goal; anyone else supports an attacking
+// teammate or marks an opponent. With the ball: skate at the goal, pass to the best placed teammate
+// (clearly ahead, or clear when pressed), shoot at the far corner once close enough and facing the goal. (The player's teammate hands control to the player as soon as it traps the ball, so
 // for it only the off-ball roles matter.) Shots and passes use the same charge-and-release buttons as
 // the player, so the ball control code does not know who is pressing them.
 #pragma once
@@ -60,12 +60,19 @@ struct FSkateSkaterView
 
 	/** This skater is the one of its team nearest to the ball. */
 	bool bChaser = true;
-	bool bMateValid = false;
-	FSkateVec2 MatePos;
-	FSkateVec2 MateVel;
+	/** The last skater back: defends instead of supporting / marking. */
+	bool bHoldBack = false;
+	/** Teammates (pass options). */
+	static constexpr int MaxMates = 4;
+	int MateCount = 0;
+	FSkateVec2 MatePos[MaxMates];
+	FSkateVec2 MateVel[MaxMates];
 	/** Nearest skater of the other team (the carrier steers around it). */
 	bool bThreatValid = false;
 	FSkateVec2 ThreatPos;
+	/** The opponent to mark when off the ball (the caller picks it; not the carrier). */
+	bool bMarkValid = false;
+	FSkateVec2 MarkPos;
 };
 
 enum class ESkateSkaterMode : unsigned char
@@ -75,6 +82,7 @@ enum class ESkateSkaterMode : unsigned char
 	Chase,
 	Press,
 	Defend,
+	Mark,
 	Support,
 	Attack,
 	Shoot,
@@ -128,6 +136,8 @@ public:
 	/** Support position: this far ahead of the carrier towards the goal, this far to the side. */
 	static constexpr float SupportAhead = 600.f;
 	static constexpr float SupportSide = 700.f;
+	/** Marking: this far (cm) goal-side of the marked opponent. */
+	static constexpr float MarkDistance = 250.f;
 	/** Carrying the ball: an opponent closer than this (cm) and within AvoidConeDeg ahead is skated around. */
 	static constexpr float AvoidDistance = 350.f;
 	static constexpr float AvoidConeDeg = 50.f;

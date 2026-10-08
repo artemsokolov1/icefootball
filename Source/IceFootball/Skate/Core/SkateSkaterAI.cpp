@@ -94,6 +94,7 @@ const char* SkateSkaterModeName(ESkateSkaterMode Mode)
 	case ESkateSkaterMode::Chase: return "Chase";
 	case ESkateSkaterMode::Press: return "Press";
 	case ESkateSkaterMode::Defend: return "Defend";
+	case ESkateSkaterMode::Mark: return "Mark";
 	case ESkateSkaterMode::Support: return "Support";
 	case ESkateSkaterMode::Attack: return "Attack";
 	case ESkateSkaterMode::Shoot: return "Shoot";
@@ -164,17 +165,20 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 			D.Mode = ESkateSkaterMode::Shoot;
 			return D;
 		}
-		// Pass: the teammate is clearly nearer the goal and not behind me, or an opponent is on me and the teammate is
-		// clear of it (any direction but straight back). Never to a teammate right next to me or too far.
-		if (View.bMateValid)
+		// Pass: a teammate clearly nearer the goal and not behind me, or an opponent is on me and a teammate is
+		// clear of it (any direction but straight back). Never to a teammate right next to me or too far. Several
+		// options: the one nearest the goal.
+		int Best = -1;
+		float BestGoalDist = 0.f;
+		for (int Index = 0; Index < View.MateCount; ++Index)
 		{
-			const FSkateVec2 ToMate = View.MatePos - View.Pos;
+			const FSkateVec2 ToMate = View.MatePos[Index] - View.Pos;
 			const float MateDist = ToMate.Size();
-			const float MateGoalDist = (View.AttackGoal - View.MatePos).Size();
+			const float MateGoalDist = (View.AttackGoal - View.MatePos[Index]).Size();
 			const float MateDot = View.Heading.Dot(ToMate.GetSafeNormal(View.Heading));
 			const bool bMateAhead = MateGoalDist < GoalDist - PassAdvantage && MateDot > 0.3f;
 			const bool bPressed = View.bThreatValid && (View.ThreatPos - View.Pos).Size() < PressDistance
-				&& (View.ThreatPos - View.MatePos).Size() > PassMateClear && MateDot > -0.5f;
+				&& (View.ThreatPos - View.MatePos[Index]).Size() > PassMateClear && MateDot > -0.5f;
 			// The lane: no opponent standing on the line to the teammate.
 			bool bLaneClear = true;
 			if (View.bThreatValid && MateDist > 1.f)
@@ -184,17 +188,22 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 				const float Along = ToThreat.Dot(Lane);
 				bLaneClear = Along < 0.f || Along > MateDist || SkateMath::Abs(ToThreat.Cross(Lane)) > PassLaneClear;
 			}
-			if (MateDist < PassMaxDistance && MateDist > PassMinDistance && bLaneClear && (bMateAhead || bPressed))
+			if (MateDist < PassMaxDistance && MateDist > PassMinDistance && bLaneClear && (bMateAhead || bPressed) && (Best < 0 || MateGoalDist < BestGoalDist))
 			{
-				Brain.Aim = View.MatePos + View.MateVel * 0.4f;
-				Brain.ChargeLeft = PassCharge;
-				Brain.bChargingShot = false;
-				D.Actions.bPushPressed = true;
-				D.Move = Towards(Brain.Aim);
-				D.Move.Boost = 0.f;
-				D.Mode = ESkateSkaterMode::Pass;
-				return D;
+				Best = Index;
+				BestGoalDist = MateGoalDist;
 			}
+		}
+		if (Best >= 0)
+		{
+			Brain.Aim = View.MatePos[Best] + View.MateVel[Best] * 0.4f;
+			Brain.ChargeLeft = PassCharge;
+			Brain.bChargingShot = false;
+			D.Actions.bPushPressed = true;
+			D.Move = Towards(Brain.Aim);
+			D.Move.Boost = 0.f;
+			D.Mode = ESkateSkaterMode::Pass;
+			return D;
 		}
 		// Carry the ball at the goal: aim for a point in front of it so the final approach is straight.
 		const FSkateVec2 ApproachDir = (View.AttackGoal - View.OwnGoal).GetSafeNormal(View.Heading);
@@ -223,7 +232,7 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		return D;
 	}
 
-	if (View.BallOwner == ESkateBallOwner::Teammate)
+	if (View.BallOwner == ESkateBallOwner::Teammate && !View.bHoldBack)
 	{
 		// Get open ahead of the carrier, on the side away from where I am now.
 		const FSkateVec2 Ahead = (View.AttackGoal - View.BallPos).GetSafeNormal(View.Heading);
@@ -294,6 +303,14 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		// Pressing: the carrier is close and ahead -> body check.
 		const FSkateVec2 ToBall = View.BallPos - View.Pos;
 		D.bCheck = View.BallOwner == ESkateBallOwner::Opponent && ToBall.Size() < Tuning.CheckRange && View.Heading.Dot(ToBall.GetSafeNormal(View.Heading)) > 0.7f;
+		return D;
+	}
+
+	// Marking an opponent: goal-side of it, watching the ball (its pass lane is mine to cut).
+	if (!View.bHoldBack && View.bMarkValid && View.BallOwner != ESkateBallOwner::Teammate)
+	{
+		GoTo(View.MarkPos + (View.OwnGoal - View.MarkPos).GetSafeNormal(View.Heading) * MarkDistance, View.BallPos);
+		D.Mode = ESkateSkaterMode::Mark;
 		return D;
 	}
 

@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "Skate/SkateArena.h"
 #include "Skate/SkateBall.h"
+#include "Skate/SkateBallControlComponent.h"
 #include "EngineUtils.h"
 #include "IceFootball.h"
 #include "Skate/SkateCharacter.h"
@@ -103,7 +104,7 @@ FSkateGoalFrame ASkateGoalkeeper::GoalFrame() const
 	return FSkateGoalFrame();
 }
 
-FVector2D ASkateGoalkeeper::ThrowTarget() const
+const ASkateCharacter* ASkateGoalkeeper::ThrowMate() const
 {
 	// Roll the ball out to the nearest skater of the keeper's own team.
 	const ASkateCharacter* Best = nullptr;
@@ -117,7 +118,12 @@ FVector2D ASkateGoalkeeper::ThrowTarget() const
 			BestDist = Dist;
 		}
 	}
-	if (Best)
+	return Best;
+}
+
+FVector2D ASkateGoalkeeper::ThrowTarget() const
+{
+	if (const ASkateCharacter* Best = ThrowMate())
 	{
 		return FVector2D(Best->GetActorLocation());
 	}
@@ -185,7 +191,10 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 			break;
 		case ESkateKeeperAction::Release:
 			Ball->ClearHolder(this);
-			Ball->ReleaseHold(ToVector(Out.BallPosition), ToVector(Out.BallVelocity), this, Team);
+			{
+				const ASkateCharacter* Mate = ThrowMate();
+				Ball->ReleaseHold(ToVector(Out.BallPosition), ToVector(Out.BallVelocity), this, Team, Mate ? Mate->GetBallControl() : nullptr);
+			}
 			break;
 		default:
 			break;

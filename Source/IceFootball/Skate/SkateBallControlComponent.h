@@ -32,8 +32,10 @@ public:
 
 	/** Button edges from the controller; consumed on the next tick. */
 	void QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease, bool bThroughPress = false);
-	/** Through pass target: ThroughLead cm ahead of the nearest teammate towards our goal, kept inside the rink. */
+	/** Through pass target: ThroughLead cm ahead of the pass partner towards our goal, kept inside the rink. */
 	void SetThroughTarget(bool bValid, const FVector2D& Target) { bThroughTargetValid = bValid; ThroughTarget = Target; }
+	/** The teammate a pass goes to right now: the one the stick points at most, the nearest one with an idle stick. */
+	ASkateCharacter* GetPassMate() const { return PassMate.Get(); }
 
 	void ResetControl();
 	/** The ball was taken away: drop it now (the usual re-trap cooldown after a loss applies). */
@@ -78,6 +80,7 @@ private:
 
 	TWeakObjectPtr<ASkateBall> Ball;
 	TWeakObjectPtr<ASkateArena> CachedArena;
+	TWeakObjectPtr<ASkateCharacter> PassMate;
 	FSkateBallControlTuning ControlTuning;
 	FSkateBallPhysicsTuning BallPhysicsTuning;
 	float SkaterMaxSpeed = 580.f;

@@ -197,7 +197,7 @@ FTransform ASkateArena::GetSpawnTransform(int32 Team, int32 Slot) const
 {
 	// Team 0 lines up at -X facing +X, team 1 mirrored. Capsule half height 92 + 2 cm clearance above the ice.
 	const float Sign = Team == 0 ? -1.f : 1.f;
-	const FVector2D Spot = Slot == 0 ? Layout.CentreSpawn : Layout.WingSpawn;
+	const FVector2D Spot = Slot == 0 ? Layout.CentreSpawn : FVector2D(Layout.WingSpawn.X, Slot == 1 ? Layout.WingSpawn.Y : -Layout.WingSpawn.Y);
 	const FVector Local(Sign * Spot.X, Sign * Spot.Y, 94.f);
 	return FTransform(FRotator(0.f, Team == 0 ? 0.f : 180.f, 0.f), GetActorTransform().TransformPosition(Local));
 }
@@ -227,9 +227,17 @@ void ASkateArena::SpawnTeams()
 		return;
 	}
 	// Team 0 slot 0 is the player's pawn (game mode); everyone else is spawned here unless placed in the level.
-	const int32 Wanted[][2] = { { 0, 1 }, { 1, 0 }, { 1, 1 } };
-	for (const int32* Who : Wanted)
+	TArray<TPair<int32, int32>> Wanted;
+	for (int32 Team = 0; Team < 2; ++Team)
 	{
+		for (int32 Slot = Team == 0 ? 1 : 0; Slot < FMath::Clamp(Layout.SkatersPerTeam, 1, 3); ++Slot)
+		{
+			Wanted.Emplace(Team, Slot);
+		}
+	}
+	for (const TPair<int32, int32>& Pair : Wanted)
+	{
+		const int32 Who[2] = { Pair.Key, Pair.Value };
 		bool bExists = false;
 		for (TActorIterator<ASkateCharacter> It(World); It; ++It)
 		{

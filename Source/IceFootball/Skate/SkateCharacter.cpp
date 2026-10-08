@@ -64,12 +64,13 @@ void ASkateCharacter::BeginPlay()
 	}
 	if (Puppet)
 	{
-		// Red = the player's team, blue = opponents; the chest patch tells the two skaters apart (white = 1, yellow = 2).
+		// Red = the player's team, blue = opponents; the chest patch tells the skaters apart (white = 1, yellow = 2, green = 3).
 		if (Team != 0)
 		{
 			Puppet->SetJerseyColor(FLinearColor(0.10f, 0.30f, 0.85f), FLinearColor(0.06f, 0.20f, 0.60f));
 		}
-		Puppet->SetMarkColor(TeamSlot == 0 ? FLinearColor(0.95f, 0.95f, 0.95f) : FLinearColor(1.f, 0.85f, 0.05f));
+		const FLinearColor Marks[] = { FLinearColor(0.95f, 0.95f, 0.95f), FLinearColor(1.f, 0.85f, 0.05f), FLinearColor(0.2f, 0.9f, 0.3f) };
+		Puppet->SetMarkColor(Marks[FMath::Clamp(TeamSlot, 0, 2)]);
 	}
 	Super::BeginPlay();
 

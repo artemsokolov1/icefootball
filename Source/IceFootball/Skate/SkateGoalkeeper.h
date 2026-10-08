@@ -14,6 +14,7 @@
 
 class ASkateArena;
 class ASkateBall;
+class ASkateCharacter;
 class UStaticMeshComponent;
 
 UCLASS()
@@ -54,6 +55,7 @@ private:
 	void ApplyPose(const FSkateKeeperPose& Pose, float DeltaSeconds);
 	FSkateGoalFrame GoalFrame() const;
 	FVector2D ThrowTarget() const;
+	const ASkateCharacter* ThrowMate() const;
 
 	TWeakObjectPtr<ASkateArena> Arena;
 	int32 GoalIndex = 0;

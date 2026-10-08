@@ -258,18 +258,29 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		}
 		Query.bThroughTargetValid = bThroughTargetValid;
 		Query.ThroughTargetPos = FSkateVec2(static_cast<float>(ThroughTarget.X), static_cast<float>(ThroughTarget.Y));
-		// Every pass goes to the nearest teammate.
-		float MateDist = TNumericLimits<float>::Max();
+		// Every pass goes to a teammate: the one the stick points at most (a deflected stick), else the nearest one.
+		const bool bAimed = Query.StickMag > 0.3f;
+		float BestScore = TNumericLimits<float>::Max();
+		PassMate = nullptr;
 		for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
 		{
-			const float Dist = static_cast<float>(FVector::Dist2D(It->GetActorLocation(), SkaterLoc));
-			if (*It != Skater && It->GetTeam() == Skater->GetTeam() && Dist < MateDist)
+			if (*It == Skater || It->GetTeam() != Skater->GetTeam())
 			{
-				MateDist = Dist;
-				Query.bPassTargetValid = true;
-				Query.PassTargetPos = FSkateVec2(static_cast<float>(It->GetActorLocation().X), static_cast<float>(It->GetActorLocation().Y));
-				Query.PassTargetVel = FSkateVec2(static_cast<float>(It->GetVelocity().X), static_cast<float>(It->GetVelocity().Y));
+				continue;
 			}
+			const FVector2D ToMate(It->GetActorLocation() - SkaterLoc);
+			const float Score = bAimed ? -static_cast<float>(ToMate.GetSafeNormal() | FVector2D(Query.StickDir.X, Query.StickDir.Y)) : static_cast<float>(ToMate.Size());
+			if (Score < BestScore)
+			{
+				BestScore = Score;
+				PassMate = *It;
+			}
+		}
+		if (const ASkateCharacter* Mate = PassMate.Get())
+		{
+			Query.bPassTargetValid = true;
+			Query.PassTargetPos = FSkateVec2(static_cast<float>(Mate->GetActorLocation().X), static_cast<float>(Mate->GetActorLocation().Y));
+			Query.PassTargetVel = FSkateVec2(static_cast<float>(Mate->GetVelocity().X), static_cast<float>(Mate->GetVelocity().Y));
 		}
 		if (PlanarDist <= TraceRange)
 		{
@@ -340,7 +351,8 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 				ANSI_TO_TCHAR(SkateImpulseKindName(Impulse.Kind)), Impulse.Power, Impulse.NewBallVelocity.Size(), SkaterLoc.X, SkaterLoc.Y,
 				Query.bPassTargetValid ? (Query.PassTargetPos - Query.BallPos.XY()).Size() : 0.f);
 		}
-		B->ApplyGameplayVelocity(ToVector(Impulse.NewBallVelocity), Impulse.Kind, this, Skater->GetTeam());
+		const ASkateCharacter* Mate = Impulse.Kind == ESkateImpulseKind::Push && Query.bPassTargetValid ? PassMate.Get() : nullptr;
+		B->ApplyGameplayVelocity(ToVector(Impulse.NewBallVelocity), Impulse.Kind, this, Skater->GetTeam(), Mate ? Mate->GetBallControl() : nullptr);
 		LastImpulse = Impulse;
 		if (Impulse.Kind != ESkateImpulseKind::BodyBlock)
 		{

@@ -36,7 +36,8 @@ public:
 	void SetIceZ(float InIceZ) { IceZ = InIceZ; }
 
 	/** One gameplay contact: sets the new linear velocity and a matching rolling spin. Logged for diagnostics. */
-	void ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source = nullptr, int32 SourceTeam = INDEX_NONE);
+	void ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source = nullptr, int32 SourceTeam = INDEX_NONE,
+		const UObject* Receiver = nullptr);
 	const FSkateBallPhysicsTuning& GetPhysicsTuning() const { return Tuning; }
 
 	// ---- Who has the ball ----
@@ -49,14 +50,17 @@ public:
 
 	/** Keeper: the ball sits in the hands (teleported, no velocity, no gravity) until released. */
 	void HoldAt(const FVector& Location);
-	void ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source, int32 SourceTeam);
+	void ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source, int32 SourceTeam, const UObject* Receiver = nullptr);
 	/** Lets go of a held ball where it is (no impulse): gravity and ice friction apply again. */
 	void DropHold();
 
 	/** Seconds since the last gameplay impulse (from anyone). */
 	float GetTimeSinceGameplayImpulse() const;
-	/** The ball is a pass (push / throw-out) from a teammate (or the own keeper) of Receiver: meet it, first touch waits for it. */
+	/** The ball is a pass (push / throw-out) from a teammate (or the own keeper) of Receiver, played to Receiver (or to nobody in
+	 *  particular): meet it, first touch waits for it. */
 	bool IsPassFor(const UObject* Receiver, int32 ReceiverTeam) const;
+	/** Whom the last pass was played to (null: nobody in particular). */
+	const UObject* GetPassReceiver() const { return LastImpulseKind == ESkateImpulseKind::Push ? LastImpulseReceiver.Get() : nullptr; }
 	/** The ball is a pass (push / throw-out) that Receiver did not make itself, from either team: received firmer. */
 	bool IsPassFromOther(const UObject* Receiver) const;
 	/** The ball is a pass that Source played within the last 2 s (the passer leaves it to the receiver). */
@@ -113,6 +117,7 @@ private:
 	double LastImpulseTime = -1000.0;
 	ESkateImpulseKind LastImpulseKind = ESkateImpulseKind::None;
 	TWeakObjectPtr<const UObject> LastImpulseSource;
+	TWeakObjectPtr<const UObject> LastImpulseReceiver;
 	int32 LastImpulseTeam = INDEX_NONE;
 	TWeakObjectPtr<const UObject> Holder;
 	bool bHeldInHands = false;
