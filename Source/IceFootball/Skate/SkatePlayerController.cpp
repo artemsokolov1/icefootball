@@ -985,8 +985,23 @@ void ASkatePlayerController::OnSwitchSkater(const FInputActionValue& Value)
 {
 	if (Team.Num() > 1)
 	{
-		// By hand: immediate control, and the automatic rules stay out of the way for a while.
-		SwitchTo((ActiveIndex + 1) % Team.Num(), /*bLatchStick*/ false);
+		// By hand: the other skater nearest to the ball (FIFA-style), and the automatic rules stay out of the way for a while.
+		int32 Next = (ActiveIndex + 1) % Team.Num();
+		if (const ASkateBall* Ball = CachedArena.IsValid() ? CachedArena->GetBall() : nullptr)
+		{
+			float Best = TNumericLimits<float>::Max();
+			for (int32 Index = 0; Index < Team.Num(); ++Index)
+			{
+				const ASkateCharacter* Member = Team[Index].Get();
+				const float Dist = Member ? static_cast<float>(FVector::Dist2D(Member->GetActorLocation(), Ball->GetActorLocation())) : Best;
+				if (Index != ActiveIndex && Member && Dist < Best)
+				{
+					Best = Dist;
+					Next = Index;
+				}
+			}
+		}
+		SwitchTo(Next, /*bLatchStick*/ false);
 		TimeSinceManualSwitch = 0.f;
 	}
 }

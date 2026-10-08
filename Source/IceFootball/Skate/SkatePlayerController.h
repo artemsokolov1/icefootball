@@ -15,7 +15,7 @@
 //   D-pad L / R  previous / next preset     1 / 2 / 3 (direct)
 //   D-pad Down   FPS cap 0/30/60/120        F3
 //   (keys only)  ball interaction on/off    F4
-//   LB           switch skater              Q
+//   LB           switch to the mate nearest the ball   Q
 //
 // Up to three skaters on the team, all played by this controller: the input drives the ACTIVE skater,
 // the others get AI input (FSkateSkaterAI: chase, support, defend, mark; the same AI drives the opponents;
