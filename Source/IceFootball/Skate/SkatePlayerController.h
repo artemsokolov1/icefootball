@@ -94,7 +94,7 @@ private:
 	void DriveAI();
 	/** Through-pass target of every own skater: ahead of its nearest teammate towards the goal. */
 	void UpdateThroughTargets();
-	void DriveSkater(ASkateCharacter* Skater, int32 Team, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode);
+	void DriveSkater(ASkateCharacter* Skater, int32 Team, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode, bool bActions = true);
 	void SyncTeamSettings();
 
 	// Axis handlers

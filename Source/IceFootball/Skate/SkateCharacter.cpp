@@ -176,9 +176,12 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 
 	if (BallControl)
 	{
-		// X: a shot with the ball at the feet or in reach; otherwise the take (or a body check on Normal).
+		// X: a shot with the ball at the feet or in reach, or with a pass on its way to me (the wind-up waits for the
+		// ball: a one-timer); otherwise the take (or a body check on Normal).
 		const ESkateContactReason Reach = BallControl->GetReport().Reason;
-		const bool bBallPlayable = BallControl->HasBall() || Reach == ESkateContactReason::Reachable || Reach == ESkateContactReason::ActionReachOnly;
+		const ASkateBall* Ball = BallControl->GetBall();
+		const bool bPassComing = Ball && !Ball->GetHolder() && Ball->IsPassFor(BallControl);
+		const bool bBallPlayable = BallControl->HasBall() || Reach == ESkateContactReason::Reachable || Reach == ESkateContactReason::ActionReachOnly || bPassComing;
 		if (Input.bKickPressed && !bBallPlayable)
 		{
 			StartTake();

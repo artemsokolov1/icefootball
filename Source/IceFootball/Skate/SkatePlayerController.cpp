@@ -580,7 +580,8 @@ void ASkatePlayerController::DriveAI()
 			Partner = Other != Index ? Team[Other].Get() : nullptr;
 		}
 		uint8 ScratchMode = 0;
-		DriveSkater(Mate, 0, Index == TeamChaser, Partner, TeamBrains[Index], Index == ActiveIndex ? ScratchMode : TeammateMode);
+		// The latched active skater gets the AI's steering only: the buttons are the player's.
+		DriveSkater(Mate, 0, Index == TeamChaser, Partner, TeamBrains[Index], Index == ActiveIndex ? ScratchMode : TeammateMode, /*bActions*/ Index != ActiveIndex || bBotsVsBots);
 	}
 	for (int32 Index = 0; Index < Opponents.Num(); ++Index)
 	{
@@ -598,7 +599,7 @@ void ASkatePlayerController::DriveAI()
 	}
 }
 
-void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTeam, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode)
+void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTeam, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode, bool bActions)
 {
 	const ASkateArena* Arena = CachedArena.Get();
 	const ASkateBall* Ball = Arena->GetBall();
@@ -673,8 +674,8 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 		Decision = FSkateSkaterDecision();
 		Decision.Move.Brake = 1.f;
 	}
-	Skater->ApplyMoveInput(Decision.Move, &Decision.Actions);
-	if (Decision.bCheck)
+	Skater->ApplyMoveInput(Decision.Move, bActions ? &Decision.Actions : nullptr);
+	if (Decision.bCheck && bActions)
 	{
 		Skater->StartTake();
 	}
@@ -762,21 +763,36 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 			FrameInput.BrakeRaw = 1.f;
 		}
 		LastRawStick = FrameInput.RawStick;
+		// A pass on its way to this skater: the AI keeps it on the ball's line until the stick is re-aimed or the
+		// ball arrives, whatever the buttons do (X winds up a one-timer meanwhile).
+		const ASkateBall* Ball = CachedArena.IsValid() ? CachedArena->GetBall() : nullptr;
+		const bool bPassInFlight = Ball && !Ball->GetHolder() && Ball->IsPassFor(Skater->GetBallControl()) && Ball->GetBallVelocity().Size2D() > 250.f;
 		if (bStickLatched)
 		{
 			LatchTime += DeltaTime;
 			const bool bReleased = FrameInput.RawStick.Size() < 0.3;
 			const bool bMoved = !bReleased && FVector2D::DotProduct(FrameInput.RawStick.GetSafeNormal(), LatchStick.GetSafeNormal()) < 0.5; // > 60 deg
-			if (bReleased || bMoved || bPushEdge || bKickPressEdge || bThroughEdge || LatchTime > 0.6f)
+			const bool bButton = !bPassInFlight && (bPushEdge || bKickPressEdge || bThroughEdge);
+			if (bReleased || bMoved || bButton || (!bPassInFlight && LatchTime > 0.6f))
 			{
 				bStickLatched = false;
 			}
 		}
 		// Movement runs right after this (the pawn's movement ticks after its controller): no added latency.
-		// While the stick is latched the new skater is still driven by the AI (DriveAI), e.g. to receive the pass.
-		if (!bBotsVsBots && !bStickLatched)
+		// While the stick is latched the new skater is still steered by the AI (DriveAI), e.g. to receive the pass;
+		// the buttons still reach it (a one-timer wind-up), only the stick is withheld.
+		if (!bBotsVsBots)
 		{
-			Skater->ApplyFrameInput(FrameInput);
+			if (bStickLatched)
+			{
+				FSkateFrameInput Buttons = FrameInput;
+				Buttons.RawStick = FVector2D::ZeroVector;
+				Skater->ApplyFrameInput(Buttons);
+			}
+			else
+			{
+				Skater->ApplyFrameInput(FrameInput);
+			}
 		}
 	}
 	bPushEdge = false;

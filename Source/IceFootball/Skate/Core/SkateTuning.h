@@ -449,7 +449,7 @@ struct FSkateBallControlTuning
 
 	/** Pressing A while the ball is not reachable keeps the command alive this long (s). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "0.5"))
-	float PushBufferTime = 0.15f;
+	float PushBufferTime = 0.25f;
 
 	// ---- Charged kick (X) ----
 
@@ -490,7 +490,7 @@ struct FSkateBallControlTuning
 
 	/** After X is released while the ball is out of reach, the kick waits this long (s) for the ball, then whiffs. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0", ClampMax = "0.5"))
-	float KickBufferTime = 0.12f;
+	float KickBufferTime = 0.3f;
 
 	/** No dribble touches for this long (s) after a push or kick, so the leaving ball is not re-touched. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Kick", meta = (ClampMin = "0"))
