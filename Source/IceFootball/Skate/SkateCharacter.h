@@ -164,6 +164,8 @@ private:
 	float CheckLeft = 0.f;
 	float TimeSinceCheck = 100.f;
 	float TimeSinceTake = 100.f;
+	/** Seconds left of a take press waiting for the ball to become takeable. */
+	float TakeBufferLeft = 0.f;
 	float TimeSinceHit = 100.f;
 	float LastBrake = 0.f;
 	float LastBoost = 0.f;

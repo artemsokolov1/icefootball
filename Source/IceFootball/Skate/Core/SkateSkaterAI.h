@@ -152,6 +152,6 @@ public:
 	static constexpr float ReceiveReach = 80.f;
 	static constexpr float ReceiveHorizon = 3.f;
 	static constexpr float ReceiveMinBallSpeed = 250.f;
-	/** Skate with boost (Tuning.BoostAmount) when farther than this (cm) from the target. */
-	static constexpr float BoostDistance = 800.f;
+	/** Skate with boost (Tuning.BoostAmount) when farther than this (cm) from the target (always when chasing / pressing). */
+	static constexpr float BoostDistance = 400.f;
 };

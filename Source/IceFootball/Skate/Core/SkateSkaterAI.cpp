@@ -299,6 +299,7 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		const float Lead = SkateMath::Clamp((View.BallPos - View.Pos).Size() / 700.f, 0.f, 1.f);
 		const FSkateVec2 Target = View.BallOwner == ESkateBallOwner::Nobody && BallSpeed > 50.f ? View.BallPos + View.BallVel * Lead : View.BallPos;
 		D.Move = Towards(Clamp(Target));
+		D.Move.Boost = Tuning.BoostAmount; // a loose ball and a carrier are sprinted at, however close
 		D.Mode = View.BallOwner == ESkateBallOwner::Opponent ? ESkateSkaterMode::Press : ESkateSkaterMode::Chase;
 		// Pressing: the carrier is close and ahead -> body check.
 		const FSkateVec2 ToBall = View.BallPos - View.Pos;

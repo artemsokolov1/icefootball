@@ -243,15 +243,19 @@ struct FSkatePossessionTuning
 	float AcquireCooldownAfterLoss = 0.35f;
 
 	/** The take button (B): an opponent's ball closer than TakeRange (cm) is knocked to the taker's feet, once it has
-	 *  been held for StealProtectTime (s); the button then rests for TakeCooldown (s). One rule, no angles. */
+	 *  been held for StealProtectTime (s); the button then rests for TakeCooldown (s). A press while the ball is still
+	 *  protected (or the carrier is just out of reach) is kept for TakeBufferTime (s) and fires as soon as the take is allowed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
 	float TakeRange = 200.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
-	float StealProtectTime = 0.7f;
+	float StealProtectTime = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
 	float TakeCooldown = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float TakeBufferTime = 0.6f;
 
 	/** No take from behind: the taker must not be deeper in the carrier's back sector than this (dot of the
 	 *  carrier's heading with the direction to the taker; -0.3 = more than ~107 deg behind is forbidden). */
@@ -601,7 +605,7 @@ struct FSkateAITuning
 
 	/** Boost (0..1, RT equivalent) the AI uses on long skates. The player's full sprint is 1. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0", ClampMax = "1"))
-	float BoostAmount = 0.3f;
+	float BoostAmount = 0.7f;
 
 	/** Shoots from closer than this (cm to the goal line centre). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "100"))

@@ -198,6 +198,7 @@ bool ASkateCharacter::CanTakeNow() const
 	const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
 	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
 	if (!Carrier || Carrier->GetTeam() == Team || TimeSinceTake < PT.TakeCooldown || IsStunned()
+		|| Holder->GetControlState().Possession.TimeHeld < PT.StealProtectTime
 		|| FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) > PT.TakeRange)
 	{
 		return false;
@@ -216,6 +217,16 @@ void ASkateCharacter::StartTake()
 	if (BallControl && BallControl->TryTake(PT.TakeRange, PT.StealProtectTime, PT.TakeBallSpeed))
 	{
 		TimeSinceTake = 0.f;
+		TakeBufferLeft = 0.f;
+		return;
+	}
+	// An opponent's ball nearby that cannot be taken yet (just received, a step too far): the press waits for it.
+	const ASkateBall* Ball = BallControl ? BallControl->GetBall() : nullptr;
+	const USkateBallControlComponent* Holder = Ball ? Cast<USkateBallControlComponent>(Ball->GetHolder()) : nullptr;
+	const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
+	if (Carrier && Carrier->GetTeam() != Team && FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) < PT.TakeRange * 1.5f)
+	{
+		TakeBufferLeft = PT.TakeBufferTime;
 		return;
 	}
 	// No ball to take: a body check, when the match allows them.
@@ -341,6 +352,16 @@ void ASkateCharacter::Tick(float DeltaSeconds)
 	TimeSinceCheck += DeltaSeconds;
 	TimeSinceTake += DeltaSeconds;
 	TimeSinceHit += DeltaSeconds;
+	if (TakeBufferLeft > 0.f)
+	{
+		TakeBufferLeft -= DeltaSeconds;
+		const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
+		if (!IsStunned() && BallControl && BallControl->TryTake(PT.TakeRange, PT.StealProtectTime, PT.TakeBallSpeed))
+		{
+			TimeSinceTake = 0.f;
+			TakeBufferLeft = 0.f;
+		}
+	}
 	if (bDebugEnabled)
 	{
 		DrawMovementDebug();

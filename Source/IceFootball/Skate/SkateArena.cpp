@@ -68,7 +68,7 @@ FSkateAITuning ASkateArena::GetAITuning(const FSkateAITuning& Base) const
 	FSkateAITuning AI = Base;
 	if (Difficulty == ESkateDifficulty::Easy)
 	{
-		AI.BoostAmount = FMath::Min(AI.BoostAmount, 0.15f);
+		AI.BoostAmount = FMath::Min(AI.BoostAmount, 0.4f);
 		AI.ShotCharge = FMath::Min(AI.ShotCharge, 0.4f);
 		AI.AimError = FMath::Max(AI.AimError, 150.f);
 		AI.FaceOffReaction = FMath::Max(AI.FaceOffReaction, 0.5f);
