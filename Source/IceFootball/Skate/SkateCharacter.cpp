@@ -180,7 +180,7 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 		// ball: a one-timer); otherwise the take (or a body check on Normal).
 		const ESkateContactReason Reach = BallControl->GetReport().Reason;
 		const ASkateBall* Ball = BallControl->GetBall();
-		const bool bPassComing = Ball && !Ball->GetHolder() && Ball->IsPassFor(BallControl);
+		const bool bPassComing = Ball && !Ball->GetHolder() && Ball->IsPassFor(BallControl, Team);
 		const bool bBallPlayable = BallControl->HasBall() || Reach == ESkateContactReason::Reachable || Reach == ESkateContactReason::ActionReachOnly || bPassComing;
 		if (Input.bKickPressed && !bBallPlayable)
 		{
@@ -239,13 +239,16 @@ void ASkateCharacter::StartCheck()
 	SkateMovement->Velocity.Y += Heading.Y * HT.LungeSpeed;
 }
 
-void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input, const FSkateBallActionInput* Actions)
+void ASkateCharacter::ApplyMoveInput(const FSkateMoveInput& Input, const FSkateBallActionInput* Actions, bool bKeepAim)
 {
-	LastFrameInput = FSkateFrameInput();
-	LastStick.Direction = Input.Direction;
-	LastStick.Magnitude = Input.Magnitude;
-	LastBrake = Input.Brake;
-	LastBoost = Input.Boost;
+	if (!bKeepAim)
+	{
+		LastFrameInput = FSkateFrameInput();
+		LastStick.Direction = Input.Direction;
+		LastStick.Magnitude = Input.Magnitude;
+		LastBrake = Input.Brake;
+		LastBoost = Input.Boost;
+	}
 	SkateMovement->SetSkateInput(IsStunned() ? FSkateMoveInput() : Input);
 	if (BallControl && Actions)
 	{

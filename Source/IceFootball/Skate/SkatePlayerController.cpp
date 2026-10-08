@@ -24,9 +24,6 @@ namespace SkatePlayerControllerDetail
 	constexpr int32 NumFpsCaps = UE_ARRAY_COUNT(FpsCaps);
 	// Keyboard only wins when the stick is inside this radius (so a resting stick never blocks the keys).
 	constexpr float StickIdleRadius = 0.12f;
-	// Auto-switch on a pass: the teammate must be within this angle (deg) of the pass and this distance (cm).
-	constexpr float PassSwitchAngle = 35.f;
-	constexpr float PassSwitchRange = 3500.f;
 }
 
 ASkatePlayerController::ASkatePlayerController()
@@ -201,6 +198,8 @@ void ASkatePlayerController::BeginPlay()
 		return;
 	}
 	BuildInputMappings();
+	// -BotsVsBots on the command line: a spectated match (log checks without a gamepad).
+	bBotsVsBots |= FParse::Param(FCommandLine::Get(), TEXT("BotsVsBots"));
 	if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
@@ -304,6 +303,7 @@ void ASkatePlayerController::RefreshTeam()
 	Skaters.StableSort([](const ASkateCharacter& A, const ASkateCharacter& B) { return A.GetTeamSlot() < B.GetTeamSlot(); });
 	Team.Reset();
 	TeamBrains.Reset();
+	TeamModes.Reset();
 	Opponents.Reset();
 	OpponentBrains.Reset();
 	OpponentModes.Reset();
@@ -331,6 +331,7 @@ void ASkatePlayerController::RefreshTeam()
 		}
 		Team.Add(Skater);
 		TeamBrains.AddDefaulted();
+		TeamModes.Add(0);
 		const USkateBallControlComponent* Ball = Skater->GetBallControl();
 		SeenAcquires.Add(Ball ? Ball->GetAcquireCount() : 0);
 		SeenImpulses.Add(Ball ? Ball->GetImpulseCount() : 0);
@@ -368,7 +369,6 @@ void ASkatePlayerController::SwitchTo(int32 Index, bool bLatchStick)
 
 void ASkatePlayerController::UpdateAutoSwitch()
 {
-	using namespace SkatePlayerControllerDetail;
 	int32 Target = INDEX_NONE;
 	for (int32 Index = 0; Index < Team.Num(); ++Index)
 	{
@@ -391,26 +391,12 @@ void ASkatePlayerController::UpdateAutoSwitch()
 		{
 			Target = Index;
 		}
-		// The player just passed: take over the teammate the pass goes to.
+		// The player just passed: every pass goes to the partner, take it over.
 		if (Index == ActiveIndex && bNewImpulse && Ball->GetLastImpulse().Kind == ESkateImpulseKind::Push && Target == INDEX_NONE)
 		{
-			const FVector2D Dir(Ball->GetLastImpulse().Direction.X, Ball->GetLastImpulse().Direction.Y);
-			float BestCos = FMath::Cos(FMath::DegreesToRadians(PassSwitchAngle));
-			for (int32 Mate = 0; Mate < Team.Num(); ++Mate)
+			for (int32 Mate = 0; Mate < Team.Num() && Target == INDEX_NONE; ++Mate)
 			{
-				const ASkateCharacter* Receiver = Team[Mate].Get();
-				if (Mate == Index || !Receiver)
-				{
-					continue;
-				}
-				const FVector2D To = FVector2D(Receiver->GetActorLocation() - Skater->GetActorLocation());
-				const float Dist = static_cast<float>(To.Size());
-				const float Cos = Dist > 1.f ? static_cast<float>(FVector2D::DotProduct(To / Dist, Dir)) : 0.f;
-				if (Dist < PassSwitchRange && Cos > BestCos)
-				{
-					BestCos = Cos;
-					Target = Mate;
-				}
+				Target = Mate != Index && Team[Mate].IsValid() ? Mate : INDEX_NONE; // ponytail: first partner; nearest when teams grow
 			}
 		}
 	}
@@ -531,7 +517,9 @@ void ASkatePlayerController::UpdateThroughTargets()
 		}
 		const FVector2D MatePos(Mate->GetActorLocation());
 		const FVector2D Dir = (GoalCentre - MatePos).GetSafeNormal();
-		FVector2D Target = MatePos + Dir * Lead;
+		// A standing teammate gets the ball closer (it cannot run 7 m in time); a running one gets the full lead.
+		const float Pace = FMath::Clamp(static_cast<float>(Mate->GetVelocity().Size2D()) / FMath::Max(Mate->GetActiveTuning().Movement.MaxSpeed, 1.f), 0.f, 1.f);
+		FVector2D Target = MatePos + Dir * Lead * (0.4f + 0.6f * Pace);
 		Target.X = FMath::Clamp(Target.X, -Half.X + 200.f, Goal.Center.X - 150.f); // never behind the goal line
 		Target.Y = FMath::Clamp(Target.Y, -Half.Y + 200.f, Half.Y - 200.f);
 		Member->GetBallControl()->SetThroughTarget(true, Target);
@@ -579,9 +567,12 @@ void ASkatePlayerController::DriveAI()
 		{
 			Partner = Other != Index ? Team[Other].Get() : nullptr;
 		}
-		uint8 ScratchMode = 0;
-		// The latched active skater gets the AI's steering only: the buttons are the player's.
-		DriveSkater(Mate, 0, Index == TeamChaser, Partner, TeamBrains[Index], Index == ActiveIndex ? ScratchMode : TeammateMode, /*bActions*/ Index != ActiveIndex || bBotsVsBots);
+		// The latched active skater gets the AI's steering only: the buttons (and the aim) are the player's.
+		DriveSkater(Mate, 0, Index == TeamChaser, Partner, TeamBrains[Index], TeamModes[Index], /*bActions*/ Index != ActiveIndex || bBotsVsBots);
+		if (Index != ActiveIndex)
+		{
+			TeammateMode = TeamModes[Index];
+		}
 	}
 	for (int32 Index = 0; Index < Opponents.Num(); ++Index)
 	{
@@ -639,7 +630,9 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 		View.BallOwner = ESkateBallOwner::Keeper;
 	}
 	View.bBallIsMyPass = Ball->IsPassFrom(Skater->GetBallControl());
-	View.bBallIsPassToMe = Ball->IsPassFor(Skater->GetBallControl());
+	View.bBallIsPassToMe = Ball->IsPassFor(Skater->GetBallControl(), SkaterTeam);
+	View.BallDamping = Ball->GetPhysicsTuning().LinearDamping;
+	View.BallRollingResistance = Ball->GetPhysicsTuning().RollingResistance;
 	// Team 0 attacks goal 0 (+X), team 1 attacks goal 1 (-X).
 	const FSkateGoalFrame Attack = Arena->GetGoalFrame(SkaterTeam == 0 ? 0 : 1);
 	const FSkateGoalFrame Own = Arena->GetGoalFrame(SkaterTeam == 0 ? 1 : 0);
@@ -674,7 +667,7 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 		Decision = FSkateSkaterDecision();
 		Decision.Move.Brake = 1.f;
 	}
-	Skater->ApplyMoveInput(Decision.Move, bActions ? &Decision.Actions : nullptr);
+	Skater->ApplyMoveInput(Decision.Move, bActions ? &Decision.Actions : nullptr, /*bKeepAim*/ !bActions);
 	if (Decision.bCheck && bActions)
 	{
 		Skater->StartTake();
@@ -766,7 +759,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		// A pass on its way to this skater: the AI keeps it on the ball's line until the stick is re-aimed or the
 		// ball arrives, whatever the buttons do (X winds up a one-timer meanwhile).
 		const ASkateBall* Ball = CachedArena.IsValid() ? CachedArena->GetBall() : nullptr;
-		const bool bPassInFlight = Ball && !Ball->GetHolder() && Ball->IsPassFor(Skater->GetBallControl()) && Ball->GetBallVelocity().Size2D() > 250.f;
+		const bool bPassInFlight = Ball && !Ball->GetHolder() && Ball->IsPassFor(Skater->GetBallControl(), Skater->GetTeam()) && Ball->GetBallVelocity().Size2D() > 250.f;
 		if (bStickLatched)
 		{
 			LatchTime += DeltaTime;
@@ -779,20 +772,11 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 			}
 		}
 		// Movement runs right after this (the pawn's movement ticks after its controller): no added latency.
-		// While the stick is latched the new skater is still steered by the AI (DriveAI), e.g. to receive the pass;
-		// the buttons still reach it (a one-timer wind-up), only the stick is withheld.
+		// While the stick is latched the new skater is still steered by the AI (DriveAI overrides the movement below),
+		// e.g. to receive the pass; the buttons still reach it and the stick stays the aim of a one-touch shot / pass.
 		if (!bBotsVsBots)
 		{
-			if (bStickLatched)
-			{
-				FSkateFrameInput Buttons = FrameInput;
-				Buttons.RawStick = FVector2D::ZeroVector;
-				Skater->ApplyFrameInput(Buttons);
-			}
-			else
-			{
-				Skater->ApplyFrameInput(FrameInput);
-			}
+			Skater->ApplyFrameInput(FrameInput);
 		}
 	}
 	bPushEdge = false;

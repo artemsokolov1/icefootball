@@ -12,6 +12,7 @@
 #include "Skate/Core/SkateTuning.h"
 #include "SkateBallControlComponent.generated.h"
 
+class ASkateArena;
 class ASkateBall;
 class ASkateCharacter;
 
@@ -76,6 +77,7 @@ private:
 	void DrawDebug(const ASkateCharacter& Skater, const FSkateContactQuery& Query) const;
 
 	TWeakObjectPtr<ASkateBall> Ball;
+	TWeakObjectPtr<ASkateArena> CachedArena;
 	FSkateBallControlTuning ControlTuning;
 	FSkateBallPhysicsTuning BallPhysicsTuning;
 	float SkaterMaxSpeed = 580.f;

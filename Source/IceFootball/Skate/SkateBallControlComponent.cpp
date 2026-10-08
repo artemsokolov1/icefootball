@@ -95,7 +95,7 @@ bool USkateBallControlComponent::TryTake(float Range, float Protect, float BallS
 	// The ball goes to our feet: the normal trap picks it up next frame.
 	const FVector Feet = Skater->GetActorLocation() + Skater->GetActorForwardVector().GetSafeNormal2D() * 45.f;
 	const FVector Dir = (Feet - B->GetActorLocation()).GetSafeNormal2D();
-	B->ApplyGameplayVelocity(Dir * BallSpeed, ESkateImpulseKind::Touch, this);
+	B->ApplyGameplayVelocity(Dir * BallSpeed, ESkateImpulseKind::Touch, this, Skater->GetTeam());
 	UE_LOG(LogIceSkate, Verbose, TEXT("TAKE: team %d slot %d takes the ball from team %d slot %d"), Skater->GetTeam(), Skater->GetTeamSlot(),
 		Carrier->GetTeam(), Carrier->GetTeamSlot());
 	return true;
@@ -241,10 +241,24 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 				&& Other->GetControlState().Possession.CarryError > PT.StealLooseDistance;
 		}
 		Query.BallTimeSinceImpulse = B->GetTimeSinceGameplayImpulse();
-		Query.bIncomingPass = B->IsPassFor(this);
+		// A teammate's pass (or the own keeper's throw-out) is received firmer, from any side and from further out;
+		// an opponent's pass is intercepted like any loose ball (in front, within the normal trap zone).
+		Query.bIncomingPass = B->IsPassFor(this, Skater->GetTeam());
+		Query.BallDamping = BallPhysicsTuning.LinearDamping;
+		Query.BallRollingResistance = BallPhysicsTuning.RollingResistance;
+		if (!CachedArena.IsValid())
+		{
+			CachedArena = ASkateArena::Find(GetWorld());
+		}
+		if (const ASkateArena* Arena = CachedArena.Get())
+		{
+			// Shots with an idle stick go at the goal this team attacks (team 0: goal 0).
+			Query.bShotTargetValid = true;
+			Query.ShotTargetPos = Arena->GetGoalFrame(Skater->GetTeam() == 0 ? 0 : 1).Center;
+		}
 		Query.bThroughTargetValid = bThroughTargetValid;
 		Query.ThroughTargetPos = FSkateVec2(static_cast<float>(ThroughTarget.X), static_cast<float>(ThroughTarget.Y));
-		// Pass assist target: the nearest teammate.
+		// Every pass goes to the nearest teammate.
 		float MateDist = TNumericLimits<float>::Max();
 		for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
 		{
@@ -274,10 +288,11 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	if (bPossessedBefore != ControlState.Possession.bPossessed)
 	{
-		UE_LOG(LogIceSkate, Verbose, TEXT("Team %d slot %d: %s (loss %s, carry error %.0f cm, speed %.0f, rel %.0f, ball h %.0f)"),
+		UE_LOG(LogIceSkate, Verbose, TEXT("Team %d slot %d: %s (loss %s, carry error %.0f cm, speed %.0f, rel %.0f, ball h %.0f, ball %.0f cm/s %.2f s after the last impulse%s)"),
 			Skater->GetTeam(), Skater->GetTeamSlot(), ControlState.Possession.bPossessed ? TEXT("TRAP") : TEXT("LOST"),
 			ANSI_TO_TCHAR(SkatePossessionLossName(ControlState.Possession.LastLoss)), ControlState.Possession.CarryError,
-			static_cast<float>(Move->Velocity.Size2D()), Report.RelativeSpeed, Report.BallHeight);
+			static_cast<float>(Move->Velocity.Size2D()), Report.RelativeSpeed, Report.BallHeight, B ? static_cast<float>(B->GetBallVelocity().Size2D()) : 0.f,
+			B ? B->GetTimeSinceGameplayImpulse() : 0.f, Query.bIncomingPass ? TEXT(", a pass") : TEXT(""));
 	}
 
 	// Possession: a carried ball gets its velocity steered (no damping / rolling resistance while carried);
@@ -321,10 +336,11 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	{
 		if (Impulse.Kind == ESkateImpulseKind::Kick || Impulse.Kind == ESkateImpulseKind::Push)
 		{
-			UE_LOG(LogIceSkate, Verbose, TEXT("Team %d slot %d: %s power %.2f -> %.0f cm/s at (%.0f, %.0f)"), Skater->GetTeam(), Skater->GetTeamSlot(),
-				ANSI_TO_TCHAR(SkateImpulseKindName(Impulse.Kind)), Impulse.Power, Impulse.NewBallVelocity.Size(), SkaterLoc.X, SkaterLoc.Y);
+			UE_LOG(LogIceSkate, Verbose, TEXT("Team %d slot %d: %s power %.2f -> %.0f cm/s at (%.0f, %.0f), teammate %.0f cm away"), Skater->GetTeam(), Skater->GetTeamSlot(),
+				ANSI_TO_TCHAR(SkateImpulseKindName(Impulse.Kind)), Impulse.Power, Impulse.NewBallVelocity.Size(), SkaterLoc.X, SkaterLoc.Y,
+				Query.bPassTargetValid ? (Query.PassTargetPos - Query.BallPos.XY()).Size() : 0.f);
 		}
-		B->ApplyGameplayVelocity(ToVector(Impulse.NewBallVelocity), Impulse.Kind, this);
+		B->ApplyGameplayVelocity(ToVector(Impulse.NewBallVelocity), Impulse.Kind, this, Skater->GetTeam());
 		LastImpulse = Impulse;
 		if (Impulse.Kind != ESkateImpulseKind::BodyBlock)
 		{

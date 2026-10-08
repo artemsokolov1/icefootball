@@ -118,13 +118,13 @@ void ASkateBall::HoldAt(const FVector& Location)
 	BallMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
 }
 
-void ASkateBall::ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source)
+void ASkateBall::ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source, int32 SourceTeam)
 {
 	bHeldInHands = false;
 	BallMesh->SetEnableGravity(true);
 	SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
 	BallMesh->WakeRigidBody();
-	ApplyGameplayVelocity(Velocity, ESkateImpulseKind::Push, Source);
+	ApplyGameplayVelocity(Velocity, ESkateImpulseKind::Push, Source, SourceTeam);
 }
 
 void ASkateBall::DropHold()
@@ -143,17 +143,22 @@ float ASkateBall::GetTimeSinceGameplayImpulse() const
 	return World ? static_cast<float>(World->GetTimeSeconds() - LastImpulseTime) : 100.f;
 }
 
-bool ASkateBall::IsPassFor(const UObject* Receiver) const
+bool ASkateBall::IsPassFor(const UObject* Receiver, int32 ReceiverTeam) const
+{
+	return IsPassFromOther(Receiver) && LastImpulseTeam == ReceiverTeam;
+}
+
+bool ASkateBall::IsPassFromOther(const UObject* Receiver) const
 {
 	return LastImpulseKind == ESkateImpulseKind::Push && LastImpulseSource.Get() != Receiver && GetTimeSinceGameplayImpulse() < 6.f;
 }
 
 bool ASkateBall::IsPassFrom(const UObject* Source) const
 {
-	return LastImpulseKind == ESkateImpulseKind::Push && LastImpulseSource.Get() == Source && GetTimeSinceGameplayImpulse() < 6.f;
+	return LastImpulseKind == ESkateImpulseKind::Push && LastImpulseSource.Get() == Source && GetTimeSinceGameplayImpulse() < 2.f;
 }
 
-void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source)
+void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source, int32 SourceTeam)
 {
 	const double Now = GetWorld()->GetTimeSeconds();
 	const double Gap = Now - LastImpulseTime;
@@ -167,6 +172,7 @@ void ASkateBall::ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulse
 	LastImpulseTime = Now;
 	LastImpulseKind = Kind;
 	LastImpulseSource = Source;
+	LastImpulseTeam = SourceTeam;
 	++GameplayImpulses;
 
 	BallMesh->SetPhysicsLinearVelocity(NewVelocity);
@@ -201,6 +207,7 @@ void ASkateBall::ResetBall(const FVector& Location)
 	BallMesh->SetEnableGravity(true);
 	LastImpulseKind = ESkateImpulseKind::None;
 	LastImpulseSource.Reset();
+	LastImpulseTeam = INDEX_NONE;
 	SetActorLocationAndRotation(Location, FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
 	BallMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
 	BallMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);

@@ -178,14 +178,14 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 		switch (Out.Action)
 		{
 		case ESkateKeeperAction::Parry:
-			Ball->ApplyGameplayVelocity(ToVector(Out.BallVelocity), ESkateImpulseKind::Save, this);
+			Ball->ApplyGameplayVelocity(ToVector(Out.BallVelocity), ESkateImpulseKind::Save, this, Team);
 			break;
 		case ESkateKeeperAction::Catch:
 			Ball->SetHolder(this);
 			break;
 		case ESkateKeeperAction::Release:
 			Ball->ClearHolder(this);
-			Ball->ReleaseHold(ToVector(Out.BallPosition), ToVector(Out.BallVelocity), this);
+			Ball->ReleaseHold(ToVector(Out.BallPosition), ToVector(Out.BallVelocity), this, Team);
 			break;
 		default:
 			break;

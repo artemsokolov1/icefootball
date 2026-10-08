@@ -18,6 +18,22 @@
 #include "SkateMath.h"
 #include "SkateTuning.h"
 
+/** Closed-form flight of a grounded ball under linear damping k (1/s) and rolling resistance a (cm/s^2):
+ *  v(t) = (v0 + a/k) e^(-kt) - a/k. Used to pace and lead passes, and to meet them. */
+namespace SkateBallFlight
+{
+	/** Speed left after travelling Distance from V0; 0 when the ball stops first. */
+	float SpeedAfter(float V0, float Distance, float Damping, float Resistance);
+	/** Time to travel Distance from V0; < 0 when the ball stops first. */
+	float TimeFor(float V0, float Distance, float Damping, float Resistance);
+	/** Time until a ball launched at V0 stops. */
+	float StopTime(float V0, float Damping, float Resistance);
+	/** Launch speed that covers Distance and still has ArriveSpeed there (MaxSpeed when even that is not enough). */
+	float SpeedFor(float Distance, float ArriveSpeed, float Damping, float Resistance, float MaxSpeed);
+	/** Where the ball is T seconds on (it stays where it stops). */
+	FSkateVec2 PositionAt(const FSkateVec2& Pos, const FSkateVec2& Vel, float T, float Damping, float Resistance);
+}
+
 /** Why the ball can / cannot be touched right now. Shown in the debug HUD. */
 enum class ESkateContactReason : unsigned char
 {
@@ -105,13 +121,20 @@ struct FSkateContactQuery
 	bool bStealAllowed = false;
 	/** Time (s) since ANY gameplay impulse on the ball (other skaters, keeper): one impulse per frame overall. */
 	float BallTimeSinceImpulse = 100.f;
-	/** The ball is a pass (its last impulse was a push / throw-out from someone else): may be received firmer. */
+	/** The ball is a teammate's pass (push / throw-out from the own team): received firmer, from any side and from further
+	 *  out, and a released A / X waits for it (one touch). An opponent's pass is a loose ball. */
 	bool bIncomingPass = false;
+	/** Ball physics (ASkateBall): linear damping (1/s) and rolling resistance (cm/s^2), for the pass flight model. */
+	float BallDamping = 0.35f;
+	float BallRollingResistance = 50.f;
 
-	/** Nearest teammate (pass assist): a pass aimed roughly at it is sent to where it will be. */
+	/** The teammate every pass (A) goes to, led to where it will be. */
 	bool bPassTargetValid = false;
 	FSkateVec2 PassTargetPos;
 	FSkateVec2 PassTargetVel;
+	/** Where a shot goes when the stick is idle: the goal being attacked. */
+	bool bShotTargetValid = false;
+	FSkateVec2 ShotTargetPos;
 	/** Through pass target: the point ahead of the teammate towards the goal (inside the rink). */
 	bool bThroughTargetValid = false;
 	FSkateVec2 ThroughTargetPos;

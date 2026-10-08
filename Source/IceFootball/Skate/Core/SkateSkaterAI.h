@@ -44,8 +44,11 @@ struct FSkateSkaterView
 	ESkateBallOwner BallOwner = ESkateBallOwner::Nobody;
 	/** The loose ball is my own pass: let the receiver have it (no chasing it down). */
 	bool bBallIsMyPass = false;
-	/** The loose ball is a pass from someone else (teammate, keeper): settle where it comes past. */
+	/** The loose ball is a teammate's (or own keeper's) pass: meet it. */
 	bool bBallIsPassToMe = false;
+	/** Ball physics (damping 1/s, rolling resistance cm/s^2): where the ball will be. */
+	float BallDamping = 0.35f;
+	float BallRollingResistance = 50.f;
 
 	/** Goal line centres on the ice and the mouth half width. */
 	FSkateVec2 AttackGoal;
@@ -109,10 +112,16 @@ public:
 
 	/** Shoots (from Tuning.ShootDistance) while heading within this angle (deg) of the goal. */
 	static constexpr float ShootFacingDeg = 30.f;
-	static constexpr float PassCharge = 0.3f;
-	/** Pass when the teammate is this much nearer the goal (cm) and not farther than PassMaxDistance. */
+	static constexpr float PassCharge = 0.1f;
+	/** Pass when the teammate is this much nearer the goal (cm), or when an opponent is within PressDistance and the
+	 *  teammate is clear of it (PassMateClear); never farther than PassMaxDistance or nearer than PassMinDistance. */
 	static constexpr float PassAdvantage = 500.f;
 	static constexpr float PassMaxDistance = 1800.f;
+	static constexpr float PassMinDistance = 300.f;
+	static constexpr float PressDistance = 400.f;
+	static constexpr float PassMateClear = 500.f;
+	/** No pass when an opponent stands closer than this (cm) to the line to the teammate. */
+	static constexpr float PassLaneClear = 150.f;
 	/** The defender sits this fraction of the way from the own goal to the ball, never nearer the goal than DefendMinFromGoal. */
 	static constexpr float DefendFraction = 0.4f;
 	static constexpr float DefendMinFromGoal = 600.f;
@@ -123,8 +132,14 @@ public:
 	static constexpr float AvoidDistance = 350.f;
 	static constexpr float AvoidConeDeg = 50.f;
 	static constexpr float AvoidTurnDeg = 65.f;
-	/** A pass is received where its path passes within this distance (cm) and within this time (s). */
-	static constexpr float ReceiveRadius = 500.f;
+	/** A pass led to where the receiver is going (its path comes within ReceiveLedRadius cm of the receiver's own
+	 *  course) is received by holding that course; otherwise the receiver goes to the earliest point it can reach
+	 *  (at ReceiveMeetSpeed cm/s, trapping within ReceiveReach cm) before the ball does, looking up to ReceiveHorizon (s)
+	 *  ahead; a ball it cannot reach in time is run after. */
+	static constexpr float ReceiveLedRadius = 90.f;
+	static constexpr float ReceiveCruiseSpeed = 550.f;
+	static constexpr float ReceiveMeetSpeed = 400.f;
+	static constexpr float ReceiveReach = 80.f;
 	static constexpr float ReceiveHorizon = 3.f;
 	static constexpr float ReceiveMinBallSpeed = 250.f;
 	/** Skate with boost (Tuning.BoostAmount) when farther than this (cm) from the target. */

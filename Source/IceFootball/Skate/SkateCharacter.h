@@ -55,8 +55,9 @@ public:
 	/** Called by the controller every frame before movement runs. */
 	void ApplyFrameInput(const FSkateFrameInput& Input);
 
-	/** AI skaters: a ready world-space skate input (no stick shaping) and optional ball buttons. */
-	void ApplyMoveInput(const FSkateMoveInput& Input, const FSkateBallActionInput* Actions = nullptr);
+	/** AI skaters: a ready world-space skate input (no stick shaping) and optional ball buttons. bKeepAim: steering only,
+	 *  the stick the player holds stays the aim of the ball actions (the AI drives a latched player skater). */
+	void ApplyMoveInput(const FSkateMoveInput& Input, const FSkateBallActionInput* Actions = nullptr, bool bKeepAim = false);
 
 	/** Drops a pass / shot wind-up in progress (the player switched to the other skater). */
 	void CancelBallActions();

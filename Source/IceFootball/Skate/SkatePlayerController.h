@@ -18,7 +18,7 @@
 // Two skaters on the team, both played by this controller: the input drives the ACTIVE skater,
 // the other one gets AI input (FSkateSkaterAI: chase, support, defend; the same AI drives the opponents;
 // fetch a loose ball / hold the ball). Control switches with LB / Q, and automatically to the
-// teammate a pass is played to and to a teammate that just got the ball.
+// teammate every pass is played to and to a teammate that just got the ball.
 //
 // The stick is read raw; ASkateCharacter applies the radial dead zone and response curve,
 // then projects it onto the ice relative to the fixed camera yaw. No input smoothing.
@@ -152,6 +152,7 @@ private:
 	TArray<TWeakObjectPtr<ASkateCharacter>> Team;
 	TArray<TWeakObjectPtr<ASkateCharacter>> Opponents;
 	TArray<FSkateSkaterBrain> TeamBrains;
+	TArray<uint8> TeamModes;
 	TArray<FSkateSkaterBrain> OpponentBrains;
 	TArray<uint8> OpponentModes;
 	int32 ActiveIndex = 0;

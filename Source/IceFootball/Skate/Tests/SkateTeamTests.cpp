@@ -142,7 +142,12 @@ namespace SkateTeamTestsDetail
 				&& S[Holder].Control.Possession.TimeHeld >= T.BallControl.Possession.StealProtectTime
 				&& S[Holder].Control.Possession.CarryError > T.BallControl.Possession.StealLooseDistance;
 			Q.BallTimeSinceImpulse = BallSinceImpulse;
-			Q.bIncomingPass = LastKind == ESkateImpulseKind::Push && LastSource != Index;
+			Q.bIncomingPass = LastKind == ESkateImpulseKind::Push && LastSource != Index
+				&& (LastSource == KeeperHolder || (LastSource >= 0 && Team[LastSource] == Team[Index]));
+			Q.BallDamping = T.BallPhysics.LinearDamping;
+			Q.BallRollingResistance = T.BallPhysics.RollingResistance;
+			Q.bShotTargetValid = true;
+			Q.ShotTargetPos = Goal.Center;
 			Q.bPassTargetValid = Team[1 - Index] == Team[Index];
 			Q.PassTargetPos = S[1 - Index].Pos;
 			Q.PassTargetVel = S[1 - Index].State.Velocity;
@@ -166,8 +171,11 @@ namespace SkateTeamTestsDetail
 			View.AttackGoal = Goal.Center;
 			View.OwnGoal = FSkateVec2(-Goal.Center.X, Goal.Center.Y);
 			View.GoalHalfWidth = Goal.HalfWidth;
-			View.bBallIsMyPass = LastKind == ESkateImpulseKind::Push && LastSource == Index;
-			View.bBallIsPassToMe = LastKind == ESkateImpulseKind::Push && LastSource != Index;
+			View.bBallIsMyPass = LastKind == ESkateImpulseKind::Push && LastSource == Index && BallSinceImpulse < 2.f;
+			View.bBallIsPassToMe = LastKind == ESkateImpulseKind::Push && LastSource != Index
+				&& (LastSource == KeeperHolder || (LastSource >= 0 && Team[LastSource] == Team[Index]));
+			View.BallDamping = T.BallPhysics.LinearDamping;
+			View.BallRollingResistance = T.BallPhysics.RollingResistance;
 			View.bChaser = Chaser[Index];
 			View.bMateValid = Team[1 - Index] == Team[Index];
 			View.MatePos = S[1 - Index].Pos;
@@ -472,7 +480,7 @@ namespace SkateTeamTestsDetail
 			{ "12 m full", FSkateVec2(1200.f, 0.f), FSkateVec2(-1.f, 0.f), 0.7f },
 			{ "12 m full, receiver side-on", FSkateVec2(1200.f, 0.f), FSkateVec2(0.f, 1.f), 0.7f },
 			{ "12 m full, receiver facing away", FSkateVec2(1200.f, 0.f), FSkateVec2(1.f, 0.f), 0.7f },
-			{ "2.5 m off target", FSkateVec2(1200.f, 250.f), FSkateVec2(-1.f, 0.f), 0.f },
+			{ "2.5 m to the side", FSkateVec2(1200.f, 250.f), FSkateVec2(-1.f, 0.f), 0.f },
 			{ "25 m full", FSkateVec2(2500.f, 0.f), FSkateVec2(-1.f, 0.f), 0.7f },
 			{ "5 m full (hard, close)", FSkateVec2(500.f, 0.f), FSkateVec2(-1.f, 0.f), 0.7f },
 		};
@@ -526,19 +534,171 @@ namespace SkateTeamTestsDetail
 		Out.push_back(R);
 	}
 
-	void TestPassAssist(std::vector<FSkateTestResult>& Out)
+	void TestPassGoesToTeammate(std::vector<FSkateTestResult>& Out)
 	{
-		FSkateTestResult R("Team.PassAssistAimsAtTeammate");
+		FSkateTestResult R("Team.PassGoesToTeammate");
 		const float Dt = 1.f / 60.f;
-		const FSkateVec2 Near(1200.f, 500.f);  // 23 deg off the stick: assisted
-		const FSkateVec2 Wide(800.f, 1400.f);  // 60 deg off: the stick is obeyed
-		const FSkateVec2 DirNear = TapPassDirection(Near, Dt);
-		const FSkateVec2 DirWide = TapPassDirection(Wide, Dt);
-		const float ErrNear = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(DirNear.Dot(Near.GetSafeNormal()), -1.f, 1.f));
-		const float ErrWide = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(DirWide.Dot(FSkateVec2(1.f, 0.f)), -1.f, 1.f));
-		R.bPassed = DirNear.SizeSquared() > 0.5f && DirWide.SizeSquared() > 0.5f && ErrNear < 4.f && ErrWide < 4.f;
-		R.Details = Fmt("stick +X, teammate 23 deg off: pass goes %.1f deg from the teammate; teammate 60 deg off: pass goes %.1f deg from the stick",
-			ErrNear, ErrWide);
+		struct FCase { const char* Name; FSkateVec2 Pos; };
+		const FCase Cases[] = {
+			{ "23 deg off the stick", FSkateVec2(1200.f, 500.f) },
+			{ "60 deg off", FSkateVec2(800.f, 1400.f) },
+			{ "behind the passer", FSkateVec2(-900.f, 300.f) },
+		};
+		bool bOk = true;
+		std::string Info;
+		for (const FCase& C : Cases)
+		{
+			const FSkateVec2 Dir = TapPassDirection(C.Pos, Dt);
+			const float Err = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(Dir.Dot(C.Pos.GetSafeNormal()), -1.f, 1.f));
+			const bool bCase = Dir.SizeSquared() > 0.5f && Err < 4.f;
+			bOk &= bCase;
+			Info += Fmt("teammate %s: pass %.1f deg from it%s; ", C.Name, Err, bCase ? "" : " FAIL");
+		}
+		R.bPassed = bOk;
+		R.Details = "stick +X; " + Info;
+		Out.push_back(R);
+	}
+
+	void TestPassArriveSpeed(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.PassArrivesAtSetSpeed");
+		const float Dt = 1.f / 60.f;
+		const float Want = FSkateTuning().BallControl.PassArriveSpeed;
+		bool bOk = true;
+		std::string Info;
+		for (float D : { 600.f, 1200.f, 2000.f })
+		{
+			const FPassOutcome P = Pass(FSkateVec2(D, 0.f), FSkateVec2(-1.f, 0.f), 0.f, Dt);
+			// Trapped up to 1.5 m before the teammate's centre: a little faster than at the teammate itself.
+			const bool bCase = P.bReceived && P.SpeedAtTrap > Want * 0.9f && P.SpeedAtTrap < Want * 1.45f && P.ReceiverBounces == 0;
+			bOk &= bCase;
+			Info += Fmt("%.0f m: played at %.0f, trapped at %.0f cm/s after %.2fs%s; ", D / 100.f, P.PassSpeed, P.SpeedAtTrap, P.Time, bCase ? "" : " FAIL");
+		}
+		R.bPassed = bOk;
+		R.Details = Fmt("tap passes should arrive at ~%.0f cm/s: ", Want) + Info;
+		Out.push_back(R);
+	}
+
+	void TestPassLeadsRunningTeammate(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.PassLeadsRunningTeammate");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(1200.f, -900.f), FSkateVec2(0.f, 1.f));
+		Sim.GiveBall(0, Dt);
+		// The teammate skates across at full stick and never looks at the ball: the pass has to meet it.
+		const auto Across = [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1] = Stick(FSkateVec2(0.f, 1.f), 1.f); };
+		Sim.Run(1.f, Dt, Across);
+		const float Start = Sim.Time;
+		const FSkateVec2 MateAtPass = Sim.S[1].Pos;
+		bool bPressed = false;
+		float Received = -1.f;
+		float SpeedAtTrap = 0.f;
+		float Prev = 0.f;
+		Sim.Run(3.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput* Act)
+		{
+			Across(Time, In, Act);
+			if (!bPressed) { Act[0].bPushPressed = true; Act[0].bPushReleased = true; bPressed = true; }
+			if (Received < 0.f && Sim.S[1].Control.Possession.bPossessed) { Received = Sim.Time - Start; SpeedAtTrap = Prev; }
+			Prev = Sim.BallVel.XY().Size();
+		});
+		R.bPassed = Received > 0.f && Sim.S[1].BodyBlocks == 0 && Sim.S[0].Impulses == 1;
+		R.Details = Fmt("teammate crossing at %.0f cm/s, 12 m away at (%.0f, %.0f): pass trapped after %.2fs at (%.0f, %.0f), ball %.0f cm/s, bounces %d",
+			Sim.S[1].State.Velocity.Size(), MateAtPass.X, MateAtPass.Y, Received, Sim.S[1].Pos.X, Sim.S[1].Pos.Y, SpeedAtTrap, Sim.S[1].BodyBlocks);
+		Out.push_back(R);
+	}
+
+	void TestReceiverRunsOntoThroughPass(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.ReceiverRunsOntoThroughPass");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(900.f, 700.f), FSkateVec2(1.f, 0.f));
+		Sim.GiveBall(0, Dt);
+		Sim.Run(0.5f, Dt, [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1].Brake = 1.f; });
+		Sim.S[1].bAI = true;
+		Sim.Chaser[1] = false; // not the nearest to the ball: must still go for the pass, not drop back to defend
+		const float Start = Sim.Time;
+		bool bPressed = false;
+		float Received = -1.f;
+		bool bDefended = false;
+		std::string Trace;
+		ESkateSkaterMode Mode = ESkateSkaterMode::Wait;
+		Sim.Run(3.5f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput* Act)
+		{
+			In[0].Brake = 1.f;
+			if (!bPressed) { Act[0].bThroughPressed = true; bPressed = true; }
+			if (Sim.S[1].Mode != Mode)
+			{
+				Mode = Sim.S[1].Mode;
+				Trace += Fmt("%.2f %s at (%.0f, %.0f) ball (%.0f, %.0f) %.0f cm/s %s; ", Sim.Time - Start, SkateSkaterModeName(Mode), Sim.S[1].Pos.X, Sim.S[1].Pos.Y,
+					Sim.BallPos.X, Sim.BallPos.Y, Sim.BallVel.XY().Size(), SkateImpulseKindName(Sim.LastKind));
+			}
+			bDefended |= Received < 0.f && Sim.S[1].Mode == ESkateSkaterMode::Defend;
+			if (Received < 0.f && Sim.S[1].Control.Possession.bPossessed) { Received = Sim.Time - Start; }
+		});
+		R.bPassed = Received > 0.f && !bDefended && Sim.S[1].BodyBlocks == 0;
+		R.Details = Fmt("through pass 3 m past a standing teammate: it ran onto it and trapped after %.2fs at (%.0f, %.0f), went to defend before that %d, bounces %d [%s]",
+			Received, Sim.S[1].Pos.X, Sim.S[1].Pos.Y, bDefended ? 1 : 0, Sim.S[1].BodyBlocks, Trace.c_str());
+		Out.push_back(R);
+	}
+
+	void TestOpponentChasesOurPass(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.OpponentChasesOurPass");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(900.f, 300.f), FSkateVec2(-1.f, 0.f));
+		Sim.GiveBall(0, Dt);
+		Sim.Run(0.5f, Dt, [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1].Brake = 1.f; });
+		Sim.S[1].bAI = true;
+		bool bPressed = false;
+		bool bReceiveSeen = false;
+		Sim.Run(1.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput* Act)
+		{
+			In[0] = Stick(FSkateVec2(1.f, 0.f), 0.3f, 1.f);
+			if (!bPressed) { Act[0].bPushPressed = true; Act[0].bPushReleased = true; bPressed = true; }
+			bReceiveSeen |= Sim.S[1].Mode == ESkateSkaterMode::Receive;
+		});
+		const bool bWentForIt = Sim.S[1].Mode == ESkateSkaterMode::Chase || Sim.S[1].Control.Possession.bPossessed;
+		R.bPassed = !bReceiveSeen && bWentForIt;
+		R.Details = Fmt("our push rolls past an opponent: it never waited for it as a pass (receive seen %d), mode %s, got it %d",
+			bReceiveSeen ? 1 : 0, SkateSkaterModeName(Sim.S[1].Mode), Sim.S[1].Control.Possession.bPossessed ? 1 : 0);
+		Out.push_back(R);
+	}
+
+	void TestOneTouchWaitsForPass(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.OneTouchShotWaitsForThePass");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(1200.f, 0.f), FSkateVec2(1.f, 0.f)); // faces the goal, the pass comes from behind
+		Sim.GiveBall(0, Dt);
+		Sim.Run(0.5f, Dt, [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1].Brake = 1.f; });
+		const float Start = Sim.Time;
+		int Frame = 0;
+		float KickAt = -1.f;
+		FSkateVec2 KickDir;
+		Sim.Run(3.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput* Act)
+		{
+			In[0].Brake = 1.f;
+			In[1].Brake = 1.f;
+			if (Frame == 0) { Act[0].bPushPressed = true; Act[0].bPushReleased = true; }
+			if (Frame == 6) { Act[1].bKickPressed = true; }   // 0.1 s after the pass: the ball is still ~10 m away
+			if (Frame == 12) { Act[1].bKickReleased = true; }
+			if (KickAt < 0.f && Sim.LastKind == ESkateImpulseKind::Kick && Sim.LastSource == 1) { KickAt = Sim.Time - Start; KickDir = Sim.BallVel.XY().GetSafeNormal(); }
+			++Frame;
+		});
+		// The shot waits for the ball (far longer than the plain kick buffer) and, with no stick, goes at the goal.
+		const float ErrGoal = KickAt > 0.f ? SkateMath::RadToDeg * std::acos(SkateMath::Clamp(KickDir.Dot((Sim.Goal.Center - Sim.S[1].Pos).GetSafeNormal()), -1.f, 1.f)) : 999.f;
+		R.bPassed = KickAt > 0.6f && ErrGoal < 15.f && Sim.S[1].BodyBlocks == 0;
+		R.Details = Fmt("X released 0.2 s after the pass was played: shot fired %.2fs after the pass (kick buffer %.2fs), %.1f deg from the goal, bounces %d",
+			KickAt, Sim.T.BallControl.KickBufferTime, ErrGoal, Sim.S[1].BodyBlocks);
 		Out.push_back(R);
 	}
 
@@ -1181,11 +1341,26 @@ namespace SkateTeamTestsDetail
 		FTeamSim Sim = MakeKeeperSim();
 		Sim.Place(0, Sim.Goal.ToWorld(700.f, 0.f), Sim.Goal.Normal * -1.f);
 		Sim.GiveBall(0, Dt);
-		Sim.Run(4.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0] = Stick(Sim.Goal.Normal * -1.f, 0.4f); });
+		std::string Trace;
+		int Catches = 0, Releases = 0;
+		bool bHad = false;
+		EShotResult Res = EShotResult::Open;
+		bool bGoalBeforeThrowOut = false;
+		Sim.Run(4.f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0] = Stick(Sim.Goal.Normal * -1.f, 0.4f);
+			// The sim keeper throws out to the nearest skater even if it is the attacker standing in the crease (a real
+			// keeper only throws to its own team): only the dribble itself must not score.
+			bGoalBeforeThrowOut |= Sim.Releases == 0 && Sim.Result == EShotResult::Goal;
+			if (Sim.K.Catches != Catches) { Catches = Sim.K.Catches; Trace += Fmt("%.2f catch; ", Time); }
+			if (Sim.Releases != Releases) { Releases = Sim.Releases; Trace += Fmt("%.2f throw-out at (%.0f, %.0f) %.0f cm/s; ", Time, Sim.BallPos.X, Sim.BallPos.Y, Sim.BallVel.XY().Size()); }
+			if (Sim.S[0].Control.Possession.bPossessed != bHad) { bHad = !bHad; Trace += Fmt("%.2f skater %s (%s) at (%.0f, %.0f); ", Time, bHad ? "traps" : "loses", SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss), Sim.S[0].Pos.X, Sim.S[0].Pos.Y); }
+			if (Sim.Result != Res) { Res = Sim.Result; Trace += Fmt("%.2f %s; ", Time, ShotResultName(Res)); }
+		});
 		const bool bTaken = Sim.K.Catches > 0 && Sim.S[0].Control.Possession.LastLoss == ESkatePossessionLoss::Taken;
-		R.bPassed = bTaken && Sim.Result != EShotResult::Goal && Sim.DoubleImpulses == 0;
-		R.Details = Fmt("skater dribbles straight into the keeper: keeper took the ball=%d (skater's loss: %s), goal=%d",
-			bTaken ? 1 : 0, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss), Sim.Result == EShotResult::Goal ? 1 : 0);
+		R.bPassed = bTaken && !bGoalBeforeThrowOut && Sim.DoubleImpulses == 0;
+		R.Details = Fmt("skater dribbles straight into the keeper: keeper took the ball=%d (skater's loss: %s), goal before the throw-out=%d [%s]",
+			bTaken ? 1 : 0, SkatePossessionLossName(Sim.S[0].Control.Possession.LastLoss), bGoalBeforeThrowOut ? 1 : 0, Trace.c_str());
 		Out.push_back(R);
 	}
 
@@ -1223,7 +1398,12 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 {
 	using namespace SkateTeamTestsDetail;
 	TestPassAndReceive(Out);
-	TestPassAssist(Out);
+	TestPassGoesToTeammate(Out);
+	TestPassArriveSpeed(Out);
+	TestPassLeadsRunningTeammate(Out);
+	TestReceiverRunsOntoThroughPass(Out);
+	TestOpponentChasesOurPass(Out);
+	TestOneTouchWaitsForPass(Out);
 	TestPassReachesFarTeammate(Out);
 	TestNoStealFromTeammate(Out);
 	TestTeammateSupportsAhead(Out);

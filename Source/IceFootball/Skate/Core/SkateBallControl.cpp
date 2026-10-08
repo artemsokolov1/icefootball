@@ -8,6 +8,79 @@ namespace SkateBallControlDetail
 	constexpr float FootForward = 15.f;
 	// Ball lower than this above the ice can hit the legs/body.
 	constexpr float BodyBlockMaxHeight = 120.f;
+	// A pass is trapped from this much further out than a loose ball (a magnet: the first touch brings it in).
+	constexpr float PassTrapScale = 1.5f;
+}
+
+namespace SkateBallFlight
+{
+	namespace
+	{
+		float K(float Damping) { return SkateMath::Max(Damping, 1.e-3f); }
+		float R(float Resistance) { return SkateMath::Max(Resistance, 1.e-3f); }
+		// Distance covered while the speed drops from V0 to V1 (V1 <= V0).
+		float DistanceBetween(float V0, float V1, float k, float a)
+		{
+			const float C = a / k;
+			return (V0 - V1) / k - (a / (k * k)) * std::log((V0 + C) / (V1 + C));
+		}
+		float TimeBetween(float V0, float V1, float k, float a)
+		{
+			const float C = a / k;
+			return std::log((V0 + C) / (V1 + C)) / k;
+		}
+	}
+
+	float SpeedAfter(float V0, float Distance, float Damping, float Resistance)
+	{
+		const float k = K(Damping);
+		if (Distance <= 0.f || V0 <= 0.f) { return SkateMath::Max(V0, 0.f); }
+		if (DistanceBetween(V0, 0.f, k, R(Resistance)) <= Distance) { return 0.f; }
+		float Lo = 0.f, Hi = V0;
+		for (int Index = 0; Index < 24; ++Index)
+		{
+			const float M = 0.5f * (Lo + Hi);
+			(DistanceBetween(V0, M, k, R(Resistance)) > Distance ? Lo : Hi) = M;
+		}
+		return 0.5f * (Lo + Hi);
+	}
+
+	float TimeFor(float V0, float Distance, float Damping, float Resistance)
+	{
+		if (Distance <= 0.f) { return 0.f; }
+		const float V1 = SpeedAfter(V0, Distance, Damping, R(Resistance));
+		return V1 > 0.f ? TimeBetween(V0, V1, K(Damping), R(Resistance)) : -1.f;
+	}
+
+	float StopTime(float V0, float Damping, float Resistance)
+	{
+		return V0 > 0.f ? TimeBetween(V0, 0.f, K(Damping), R(Resistance)) : 0.f;
+	}
+
+	float SpeedFor(float Distance, float ArriveSpeed, float Damping, float Resistance, float MaxSpeed)
+	{
+		const float k = K(Damping);
+		if (Distance <= 0.f) { return SkateMath::Min(ArriveSpeed, MaxSpeed); }
+		if (MaxSpeed <= ArriveSpeed || DistanceBetween(MaxSpeed, ArriveSpeed, k, R(Resistance)) <= Distance) { return MaxSpeed; }
+		float Lo = ArriveSpeed, Hi = MaxSpeed;
+		for (int Index = 0; Index < 24; ++Index)
+		{
+			const float M = 0.5f * (Lo + Hi);
+			(DistanceBetween(M, ArriveSpeed, k, R(Resistance)) < Distance ? Lo : Hi) = M;
+		}
+		return 0.5f * (Lo + Hi);
+	}
+
+	FSkateVec2 PositionAt(const FSkateVec2& Pos, const FSkateVec2& Vel, float T, float Damping, float Resistance)
+	{
+		const float k = K(Damping);
+		const float C = R(Resistance) / k;
+		const float V0 = Vel.Size();
+		if (V0 < 1.f || T <= 0.f) { return Pos; }
+		const float t = SkateMath::Min(T, StopTime(V0, Damping, R(Resistance)));
+		const float X = (V0 + C) * (1.f - std::exp(-k * t)) / k - C * t;
+		return Pos + Vel * (SkateMath::Max(X, 0.f) / V0);
+	}
 }
 
 const char* SkateContactReasonName(ESkateContactReason Reason)
@@ -204,8 +277,9 @@ FSkateContactReport FSkateBallControl::Evaluate(const FSkateBallControlTuning& T
 		Report.Reason = bInTouchZone ? ESkateContactReason::Reachable : ESkateContactReason::ActionReachOnly;
 	}
 
-	Report.bInTrapZone = Report.Distance <= Tuning.Possession.TrapDistance
-		&& Report.AngleFromHeadingDeg <= Tuning.Possession.TrapHalfAngle
+	// A pass is received from any side and from further out (it comes to the feet whichever way the skater faces).
+	Report.bInTrapZone = Report.Distance <= Tuning.Possession.TrapDistance * (Query.bIncomingPass ? SkateBallControlDetail::PassTrapScale : 1.f)
+		&& (Query.bIncomingPass || Report.AngleFromHeadingDeg <= Tuning.Possession.TrapHalfAngle)
 		&& Report.BallHeight <= Tuning.Possession.TrapMaxHeight
 		&& Query.bLineOfSightClear;
 
@@ -326,10 +400,13 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	State.TimeSinceFail += Dt;
 
 	// ---- Command input: charge, buffers ----
+	// A pass on its way: a released button waits for the ball (one touch).
+	const float KickWait = Query.bIncomingPass ? SkateMath::Max(Tuning.KickBufferTime, Tuning.OneTouchBufferTime) : Tuning.KickBufferTime;
+	const float PushWait = Query.bIncomingPass ? SkateMath::Max(Tuning.PushBufferTime, Tuning.OneTouchBufferTime) : Tuning.PushBufferTime;
 	if (Actions.bThroughPressed && !State.bCharging && !State.bChargingPass)
 	{
 		State.PendingPassPower = 1.f;
-		State.PushBuffer = Tuning.PushBufferTime;
+		State.PushBuffer = PushWait;
 		State.bPendingThrough = true;
 	}
 	if (Actions.bKickPressed)
@@ -345,7 +422,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	{
 		State.bCharging = false;
 		State.PendingKickPower = SkateMath::Clamp01(State.ChargeTime / SkateMath::Max(Tuning.KickMaxChargeTime, 0.01f));
-		State.KickBuffer = Tuning.KickBufferTime;
+		State.KickBuffer = KickWait;
 		State.PushBuffer = -1.f; // the kick supersedes a pending push
 	}
 	// Pass: hold A to charge, release to pass (a quick tap = PushSpeed).
@@ -364,7 +441,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		if (State.KickBuffer < 0.f)
 		{
 			State.PendingPassPower = SkateMath::Clamp01(State.PassChargeTime / SkateMath::Max(Tuning.PassMaxChargeTime, 0.01f));
-			State.PushBuffer = Tuning.PushBufferTime;
+			State.PushBuffer = PushWait;
 			State.bPendingThrough = false;
 		}
 	}
@@ -374,7 +451,10 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	// Which foot plays the next pass / shot. Chosen when the wind-up starts and kept through it.
 	if ((!State.bCharging && !State.bChargingPass) || Actions.bKickPressed || Actions.bPushPressed)
 	{
-		State.PlannedFoot = ChooseFoot(Tuning, Query, DesiredDirection(Query, 0.2f), State.PlannedFoot);
+		const FSkateVec2 Planned = State.bChargingPass && !State.bCharging && Query.bPassTargetValid
+			? (Query.PassTargetPos - Query.BallPos.XY()).GetSafeNormal(Query.Heading)
+			: DesiredDirection(Query, 0.2f);
+		State.PlannedFoot = ChooseFoot(Tuning, Query, Planned, State.PlannedFoot);
 	}
 	OutReport.bOnCooldown = State.TimeSinceImpulse < Tuning.TouchCooldown || State.TimeSinceAction < Tuning.NoTouchAfterAction;
 
@@ -406,9 +486,10 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		}
 	}
 
-	// A carried ball is at the feet by definition: push / kick are always in reach.
+	// A carried ball is at the feet by definition: push / kick are in reach once it has swung round to the front
+	// (a pass trapped at the heels orbits there within ~0.2 s; a kick before that would go sideways or back).
 	const bool bActionReach = !Query.bBallHeldByOther && !Query.bStunned
-		&& (Poss.bPossessed || OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly);
+		&& ((Poss.bPossessed && OutReport.AngleFromHeadingDeg <= 45.f) || OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly);
 	// One impulse per ball per frame overall, also across skaters and the keeper.
 	const bool bGapOk = State.TimeSinceImpulse >= MinImpulseGap && Query.BallTimeSinceImpulse >= MinImpulseGap;
 	FSkateBallImpulse Impulse;
@@ -544,26 +625,33 @@ FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tun
 	Impulse.Kind = ESkateImpulseKind::Push;
 	Impulse.Power = SkateMath::Clamp01(Power);
 	const FSkateVec2 Normal = ContactNormal(Query);
-	FSkateVec2 Desired = DesiredDirection(Query, 0.2f);
 	const float MaxSpeed = SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed);
-	float BaseSpeed = SkateMath::Lerp(Tuning.PushSpeed, MaxSpeed, Impulse.Power);
+	FSkateVec2 Dir;
+	float Speed;
 	if (Query.bPassTargetValid)
 	{
-		// Pass assist: aimed roughly at the teammate -> lead it to where the teammate will be when the ball arrives,
-		// and make sure it gets there: the charge only adds on top of the speed the distance needs.
-		const FSkateVec2 ToMateNow = Query.PassTargetPos - Query.BallPos.XY();
-		const float Flight = ToMateNow.Size() / SkateMath::Max(BaseSpeed, 1.f);
-		const FSkateVec2 ToMate = ToMateNow + Query.PassTargetVel * Flight;
-		const FSkateVec2 MateDir = ToMate.GetSafeNormal(Desired);
-		if (Desired.Dot(MateDir) >= std::cos(Tuning.PassAssistAngle * SkateMath::DegToRad))
+		// A pass goes to the teammate, whatever the stick says and whichever way the ball sits (the skater turns and
+		// plays it): led to where the teammate will be when the ball gets there, paced to arrive at PassArriveSpeed
+		// (exact ball flight: damping + rolling resistance), the charge adds pace on top.
+		FSkateVec2 Target = Query.PassTargetPos;
+		float Launch = Tuning.PushSpeed;
+		for (int Pass = 0; Pass < 3; ++Pass)
 		{
-			Desired = MateDir;
-			const float Needed = Tuning.PassArriveSpeed + Tuning.PassLossPerMetre * ToMate.Size() / 100.f;
-			BaseSpeed = SkateMath::Clamp(Needed, BaseSpeed, MaxSpeed);
+			const float Dist = (Target - Query.BallPos.XY()).Size();
+			Launch = SkateBallFlight::SpeedFor(Dist, Tuning.PassArriveSpeed, Query.BallDamping, Query.BallRollingResistance, MaxSpeed);
+			float Flight = SkateBallFlight::TimeFor(Launch, Dist, Query.BallDamping, Query.BallRollingResistance);
+			if (Flight < 0.f) { Flight = SkateBallFlight::StopTime(Launch, Query.BallDamping, Query.BallRollingResistance); }
+			Target = Query.PassTargetPos + Query.PassTargetVel * Flight;
 		}
+		Dir = (Target - Query.BallPos.XY()).GetSafeNormal(Normal);
+		Speed = SkateMath::Lerp(Launch, MaxSpeed, Impulse.Power);
 	}
-	const FSkateVec2 Dir = LimitDeviation(Normal, Desired, Tuning.PushMaxDeviation);
-	const float Speed = BaseSpeed + Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
+	else
+	{
+		// Nobody to pass to: along the stick (or the way the skater goes), from the foot that has the ball.
+		Dir = LimitDeviation(Normal, DesiredDirection(Query, 0.2f), Tuning.PushMaxDeviation);
+		Speed = SkateMath::Lerp(Tuning.PushSpeed, MaxSpeed, Impulse.Power) + Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
+	}
 
 	Impulse.Direction = Dir;
 	Impulse.NewBallVelocity = FSkateVec3(Dir * Speed, Query.BallVel.Z);
@@ -581,10 +669,9 @@ FSkateBallImpulse FSkateBallControl::MakeThroughPass(const FSkateBallControlTuni
 	Impulse.Power = 1.f;
 	const FSkateVec2 Normal = ContactNormal(Query);
 	const FSkateVec2 ToTarget = Query.ThroughTargetPos - Query.BallPos.XY();
-	const FSkateVec2 Dir = LimitDeviation(Normal, ToTarget.GetSafeNormal(Normal), Tuning.PushMaxDeviation);
+	const FSkateVec2 Dir = ToTarget.GetSafeNormal(Normal);
 	const float MaxSpeed = SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed);
-	const float Needed = Tuning.ThroughArriveSpeed + Tuning.PassLossPerMetre * ToTarget.Size() / 100.f;
-	const float Speed = SkateMath::Clamp(Needed, Tuning.PushSpeed, MaxSpeed) + Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
+	const float Speed = SkateBallFlight::SpeedFor(ToTarget.Size(), Tuning.ThroughArriveSpeed, Query.BallDamping, Query.BallRollingResistance, MaxSpeed);
 	Impulse.Direction = Dir;
 	Impulse.NewBallVelocity = FSkateVec3(Dir * Speed, Query.BallVel.Z);
 	return Impulse;
@@ -596,7 +683,11 @@ FSkateBallImpulse FSkateBallControl::MakeKick(const FSkateBallControlTuning& Tun
 	Impulse.Kind = ESkateImpulseKind::Kick;
 	Impulse.Power = SkateMath::Clamp01(Power);
 	const FSkateVec2 Normal = ContactNormal(Query);
-	const FSkateVec2 Desired = DesiredDirection(Query, 0.2f);
+	FSkateVec2 Desired = DesiredDirection(Query, 0.2f);
+	if (Query.bShotTargetValid && !(Query.StickMag >= 0.2f && Query.StickDir.SizeSquared() > 0.25f))
+	{
+		Desired = (Query.ShotTargetPos - Query.BallPos.XY()).GetSafeNormal(Desired); // stick idle: at the goal
+	}
 	const FSkateVec2 Dir = LimitDeviation(Normal, Desired, Tuning.KickMaxDeviation);
 	const float Speed = SkateMath::Lerp(Tuning.KickMinSpeed, Tuning.KickMaxSpeed, Impulse.Power)
 		+ Tuning.KickCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));

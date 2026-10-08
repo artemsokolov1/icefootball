@@ -164,13 +164,27 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 			D.Mode = ESkateSkaterMode::Shoot;
 			return D;
 		}
-		// Pass: the teammate is clearly nearer the goal, not too far, and not behind me.
+		// Pass: the teammate is clearly nearer the goal and not behind me, or an opponent is on me and the teammate is
+		// clear of it (any direction but straight back). Never to a teammate right next to me or too far.
 		if (View.bMateValid)
 		{
 			const FSkateVec2 ToMate = View.MatePos - View.Pos;
 			const float MateDist = ToMate.Size();
 			const float MateGoalDist = (View.AttackGoal - View.MatePos).Size();
-			if (MateDist < PassMaxDistance && MateGoalDist < GoalDist - PassAdvantage && View.Heading.Dot(ToMate.GetSafeNormal(View.Heading)) > 0.3f)
+			const float MateDot = View.Heading.Dot(ToMate.GetSafeNormal(View.Heading));
+			const bool bMateAhead = MateGoalDist < GoalDist - PassAdvantage && MateDot > 0.3f;
+			const bool bPressed = View.bThreatValid && (View.ThreatPos - View.Pos).Size() < PressDistance
+				&& (View.ThreatPos - View.MatePos).Size() > PassMateClear && MateDot > -0.5f;
+			// The lane: no opponent standing on the line to the teammate.
+			bool bLaneClear = true;
+			if (View.bThreatValid && MateDist > 1.f)
+			{
+				const FSkateVec2 Lane = ToMate * (1.f / MateDist);
+				const FSkateVec2 ToThreat = View.ThreatPos - View.Pos;
+				const float Along = ToThreat.Dot(Lane);
+				bLaneClear = Along < 0.f || Along > MateDist || SkateMath::Abs(ToThreat.Cross(Lane)) > PassLaneClear;
+			}
+			if (MateDist < PassMaxDistance && MateDist > PassMinDistance && bLaneClear && (bMateAhead || bPressed))
 			{
 				Brain.Aim = View.MatePos + View.MateVel * 0.4f;
 				Brain.ChargeLeft = PassCharge;
@@ -219,22 +233,54 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		return D;
 	}
 
-	// A pass for me: skate to where its path passes closest and stop there facing the ball, so the trap zone catches it.
+	// A pass for me: meet it, facing the goal (a pass is trapped from any side, and the first touch is then a shot
+	// or a pass forward, not a turn). Coming past me: wait on its line. Elsewhere (a through ball, a stray pass): the
+	// earliest point I can reach before the ball does; none in time: run after it.
+	if (View.BallOwner == ESkateBallOwner::Nobody && View.bBallIsPassToMe && View.BallVel.Size() <= ReceiveMinBallSpeed)
+	{
+		// The pass has (nearly) stopped short: go and get it.
+		D.Move = Towards(Clamp(View.BallPos));
+		D.Mode = ESkateSkaterMode::Receive;
+		return D;
+	}
 	if (View.BallOwner == ESkateBallOwner::Nobody && View.bBallIsPassToMe)
 	{
-		const FSkateVec2 Rel = View.BallPos - View.Pos;
-		const float BallSpeed = View.BallVel.Size();
-		if (BallSpeed > ReceiveMinBallSpeed)
+		FSkateVec2 Target;
+		float MeetTime = 0.f;
+		bool bLed = false;
+		bool bFound = false;
+		for (float T = 0.1f; !bLed && !bFound && T <= ReceiveHorizon; T += 0.1f)
 		{
-			const float T = -Rel.Dot(View.BallVel) / (BallSpeed * BallSpeed);
-			const FSkateVec2 Closest = View.BallPos + View.BallVel * SkateMath::Clamp(T, 0.f, ReceiveHorizon);
-			if (T > 0.f && T < ReceiveHorizon && (Closest - View.Pos).Size() < ReceiveRadius)
+			const FSkateVec2 At = SkateBallFlight::PositionAt(View.BallPos, View.BallVel, T, View.BallDamping, View.BallRollingResistance);
+			// Led to me: the ball meets my own course if I keep going (steered a little, so a stick I eased off does not spoil it).
+			bLed = (At - (View.Pos + View.Vel * T)).Size() <= ReceiveLedRadius;
+			if (bLed || (At - View.Pos).Size() <= ReceiveMeetSpeed * T + ReceiveReach)
 			{
-				D.Move = SkateSteer::GoTo(View.Pos, View.Vel, View.Heading, Closest, View.BallPos);
-				D.Mode = ESkateSkaterMode::Receive;
-				return D;
+				Target = At;
+				MeetTime = T;
+				bFound = !bLed;
 			}
 		}
+		const FSkateVec2 ToMeet = Target - View.Pos;
+		if ((bLed || bFound) && ToMeet.Size() > 40.f)
+		{
+			// Be at the meeting point when the ball is: the velocity that gets me there, as a stick (no stopping at
+			// the point: momentum is part of the plan, a GoTo would brake and miss a short pass).
+			const FSkateVec2 Needed = ToMeet * (1.f / MeetTime);
+			D.Move.Direction = Needed.GetSafeNormal(View.Heading);
+			D.Move.Magnitude = SkateMath::Clamp(Needed.Size() / ReceiveCruiseSpeed, 0.15f, 1.f);
+			D.Move.Boost = Needed.Size() > ReceiveCruiseSpeed ? Tuning.BoostAmount : 0.f;
+		}
+		else if (bLed || bFound)
+		{
+			D.Move = SkateSteer::Face(View.Pos, View.Heading, View.AttackGoal);
+		}
+		else
+		{
+			D.Move = Towards(Clamp(SkateBallFlight::PositionAt(View.BallPos, View.BallVel, ReceiveHorizon, View.BallDamping, View.BallRollingResistance)));
+		}
+		D.Mode = ESkateSkaterMode::Receive;
+		return D;
 	}
 
 	if (View.bChaser && !(View.BallOwner == ESkateBallOwner::Nobody && View.bBallIsMyPass))

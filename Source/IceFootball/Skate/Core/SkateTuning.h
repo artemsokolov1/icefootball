@@ -412,17 +412,14 @@ struct FSkateBallControlTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
 	float PushSpeed = 1150.f;
 
-	/** Pass assist: a pass aimed within this angle (deg) of a teammate is sent to where that teammate will be. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "90"))
-	float PassAssistAngle = 40.f;
-
-	/** An assisted pass is at least fast enough to reach the teammate at PassArriveSpeed (cm/s), losing
-	 *  PassLossPerMetre (cm/s per metre) on the way. The charge only adds on top of that. */
+	/** A pass (A) always goes to the teammate, led to where it will be, and is played just fast enough to get there
+	 *  at this speed (cm/s) given the ball's damping and rolling resistance. The charge adds pace on top. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float PassArriveSpeed = 350.f;
+	float PassArriveSpeed = 600.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float PassLossPerMetre = 40.f;
+	/** With a pass on its way to this skater, a released A / X waits this long (s) for the ball: a one-touch pass or shot. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "3"))
+	float OneTouchBufferTime = 1.5f;
 
 	/** Through pass (Y): played this far (cm) ahead of the teammate towards the goal, arriving at ThroughArriveSpeed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))

@@ -36,7 +36,8 @@ public:
 	void SetIceZ(float InIceZ) { IceZ = InIceZ; }
 
 	/** One gameplay contact: sets the new linear velocity and a matching rolling spin. Logged for diagnostics. */
-	void ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source = nullptr);
+	void ApplyGameplayVelocity(const FVector& NewVelocity, ESkateImpulseKind Kind, const UObject* Source = nullptr, int32 SourceTeam = INDEX_NONE);
+	const FSkateBallPhysicsTuning& GetPhysicsTuning() const { return Tuning; }
 
 	// ---- Who has the ball ----
 	/** Claims the ball (a skater trapped it, the keeper caught it). */
@@ -48,15 +49,17 @@ public:
 
 	/** Keeper: the ball sits in the hands (teleported, no velocity, no gravity) until released. */
 	void HoldAt(const FVector& Location);
-	void ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source);
+	void ReleaseHold(const FVector& Location, const FVector& Velocity, const UObject* Source, int32 SourceTeam);
 	/** Lets go of a held ball where it is (no impulse): gravity and ice friction apply again. */
 	void DropHold();
 
 	/** Seconds since the last gameplay impulse (from anyone). */
 	float GetTimeSinceGameplayImpulse() const;
-	/** The ball is a pass (push / throw-out) that Receiver did not make itself. */
-	bool IsPassFor(const UObject* Receiver) const;
-	/** The ball is a pass that Source just played (the passer does not chase it). */
+	/** The ball is a pass (push / throw-out) from a teammate (or the own keeper) of Receiver: meet it, first touch waits for it. */
+	bool IsPassFor(const UObject* Receiver, int32 ReceiverTeam) const;
+	/** The ball is a pass (push / throw-out) that Receiver did not make itself, from either team: received firmer. */
+	bool IsPassFromOther(const UObject* Receiver) const;
+	/** The ball is a pass that Source played within the last 2 s (the passer leaves it to the receiver). */
 	bool IsPassFrom(const UObject* Source) const;
 
 	/** Possession: while carried, damping and rolling resistance are off and the velocity is steered every
@@ -110,6 +113,7 @@ private:
 	double LastImpulseTime = -1000.0;
 	ESkateImpulseKind LastImpulseKind = ESkateImpulseKind::None;
 	TWeakObjectPtr<const UObject> LastImpulseSource;
+	int32 LastImpulseTeam = INDEX_NONE;
 	TWeakObjectPtr<const UObject> Holder;
 	bool bHeldInHands = false;
 	int32 DoubleImpulseFaults = 0;
