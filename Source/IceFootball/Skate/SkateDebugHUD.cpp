@@ -109,7 +109,7 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		Arena ? SkateDifficultyName(Arena->GetDifficulty()) : TEXT("?"),
 		ANSI_TO_TCHAR(SkateTuningPresets::Name(Skater->GetPreset())),
 		!Skater->IsBallInteractionEnabled() ? TEXT("interaction OFF (skating only)") : (BallState && BallState->HasBall() ? TEXT("AT FEET") : TEXT("loose")),
-		Rig && Rig->IsStaticMode() ? TEXT("STATIC") : TEXT("follow"),
+		Rig && Rig->IsStaticMode() ? TEXT("STATIC") : (Rig && Rig->IsChaseMode() ? TEXT("chase (R3)") : TEXT("side (R3)")),
 		Cap > 0 ? *FString::FromInt(Cap) : TEXT("off"));
 	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), 0.f, 0.f, Canvas->ClipX, 44.f);
 	DrawText(Status, Info, 12.f, 4.f, GEngine->GetSmallFont(), TextScale);
@@ -266,7 +266,7 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	}
 	else if (Arena && Arena->IsMatchOver())
 	{
-		const FString Text = FString::Printf(TEXT("FULL TIME   YOU %d : %d CPU      Y / R: new match"), Arena->GetScore(0), Arena->GetScore(1));
+		const FString Text = FString::Printf(TEXT("FULL TIME   YOU %d : %d CPU      Menu / R: new match"), Arena->GetScore(0), Arena->GetScore(1));
 		DrawText(Text, Good, Canvas->ClipX * 0.5f - 260.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.5f);
 	}
 	else if (Arena && GetWorld()->GetTimeSeconds() - Arena->GetLastGoalTime() < 2.4)
@@ -507,8 +507,8 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 	CursorY = Canvas->ClipY - 7.f * LineHeight - 8.f;
 	Line(TEXT("World: green = velocity, blue = blades, yellow = stick, orange = lateral accel,"), Dim);
 	Line(TEXT("       reach zone green/cyan = trap/A-X allowed, grey = not reachable, yellow = carry point, magenta = last impulse"), Dim);
-	Line(TEXT("Pad: LS move | LT brake | RT boost | A pass | Y through pass | X shot / take the ball (no ball near: body check on Normal) | Menu new match | RB ball to feet"), Dim);
+	Line(TEXT("Pad: LS move | LT brake | RT boost | A pass | Y through pass | X shot / take the ball (no ball near: body check on Normal) | Menu new match | RB ball to feet | R3 camera"), Dim);
 	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R difficulty | D-pad Down FPS cap | F4 ball on/off"), Dim);
-	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J pass | I through pass | K shot / take | R new match | T ball"), Dim);
+	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J pass | I through pass | K shot / take | R new match | T ball | C camera"), Dim);
 	Line(TEXT("      F1 debug | F2 camera | 1/2/3 preset | F3 FPS cap | F4 ball on/off"), Dim);
 }

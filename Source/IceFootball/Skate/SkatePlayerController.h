@@ -4,15 +4,17 @@
 //   Left stick   move / accelerate          WASD or arrows (hold Left Alt = half stick)
 //   LT           brake (analog)             Space
 //   RT           boost (analog)             Left Shift
-//   A            short push of the ball     J
+//   A            pass to the partner        J
 //   X (hold)     charge kick, release=kick  K
-//   Y            reset skater + ball        R
+//   Y            through pass               I
+//   Menu/Start   new match                  R
 //   RB           ball to feet (test aid)    T
 //   View/Back    debug HUD on/off           F1
-//   D-pad Up     follow / static camera     F2
+//   D-pad Up     side / static camera       F2
+//   R3           side / chase camera        C
 //   D-pad L / R  previous / next preset     1 / 2 / 3 (direct)
 //   D-pad Down   FPS cap 0/30/60/120        F3
-//   Menu/Start   ball interaction on/off    F4
+//   (keys only)  ball interaction on/off    F4
 //   LB           switch skater              Q
 //
 // Up to three skaters on the team, all played by this controller: the input drives the ACTIVE skater,
@@ -121,6 +123,7 @@ private:
 	void OnBallToFeet(const FInputActionValue& Value);
 	void OnToggleDebug(const FInputActionValue& Value);
 	void OnToggleCamera(const FInputActionValue& Value);
+	void OnToggleChase(const FInputActionValue& Value);
 	void OnPresetNext(const FInputActionValue& Value);
 	void OnPresetPrev(const FInputActionValue& Value);
 	void OnPreset1(const FInputActionValue& Value);
@@ -142,6 +145,7 @@ private:
 	UInputAction* IA_BallToFeet = nullptr;
 	UInputAction* IA_Debug = nullptr;
 	UInputAction* IA_Camera = nullptr;
+	UInputAction* IA_Chase = nullptr;
 	UInputAction* IA_PresetNext = nullptr;
 	UInputAction* IA_PresetPrev = nullptr;
 	UInputAction* IA_Preset1 = nullptr;

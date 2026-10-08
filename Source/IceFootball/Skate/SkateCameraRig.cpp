@@ -1,6 +1,8 @@
 #include "Skate/SkateCameraRig.h"
 
 #include "Camera/CameraComponent.h"
+#include "Skate/SkateCharacter.h"
+#include "Skate/SkateMovementComponent.h"
 
 namespace SkateCameraDetail
 {
@@ -51,8 +53,19 @@ void ASkateCameraRig::SetStaticMode(bool bInStatic)
 	UpdateCamera(0.f);
 }
 
+void ASkateCameraRig::ToggleChaseMode()
+{
+	bChaseMode = !bChaseMode;
+	SnapToTarget();
+}
+
 void ASkateCameraRig::SnapToTarget()
 {
+	if (const ASkateCharacter* Skater = Cast<ASkateCharacter>(Target.Get()))
+	{
+		const FSkateVec2 Heading = Skater->GetSkateMovement()->GetSkateState().Heading;
+		ChaseYaw = FMath::RadiansToDegrees(FMath::Atan2(Heading.Y, Heading.X));
+	}
 	BlendOffset = FVector::ZeroVector;
 	LookAhead = FVector2D::ZeroVector;
 	LookAheadVelocity = FVector2D::ZeroVector;
@@ -86,6 +99,33 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 	}
 
 	const FVector Velocity = TargetActor->GetVelocity();
+	if (bChaseMode)
+	{
+		// Behind the skater, easing after its heading. Look-ahead along the velocity, no interest framing.
+		if (const ASkateCharacter* Skater = Cast<ASkateCharacter>(TargetActor))
+		{
+			const FSkateVec2 Heading = Skater->GetSkateMovement()->GetSkateState().Heading;
+			const float Wanted = FMath::RadiansToDegrees(FMath::Atan2(Heading.Y, Heading.X));
+			const float Alpha = DeltaSeconds > 0.f ? 1.f - FMath::Exp(-DeltaSeconds / Tuning.ChaseYawSmoothTime) : 1.f;
+			ChaseYaw = FRotator::NormalizeAxis(ChaseYaw + FRotator::NormalizeAxis(Wanted - ChaseYaw) * Alpha);
+		}
+		FVector2D Ahead(Velocity.X * Tuning.LookAheadTime, Velocity.Y * Tuning.LookAheadTime);
+		if (Ahead.Size() > Tuning.MaxLookAhead)
+		{
+			Ahead = Ahead.GetSafeNormal() * Tuning.MaxLookAhead;
+		}
+		if (DeltaSeconds > 0.f)
+		{
+			LookAhead = SmoothDamp(LookAhead, Ahead, LookAheadVelocity, Tuning.LookAheadSmoothTime, DeltaSeconds);
+			BlendOffset *= FMath::Exp(-7.f * DeltaSeconds);
+		}
+		Camera->SetFieldOfView(Tuning.ChaseFieldOfView);
+		const FVector TargetLoc = TargetActor->GetActorLocation();
+		const FVector Focus(TargetLoc.X + LookAhead.X, TargetLoc.Y + LookAhead.Y, TargetLoc.Z - 92.f + FocusHeight);
+		const FRotator Rotation(Tuning.ChasePitch, ChaseYaw, 0.f);
+		SetActorLocationAndRotation(Focus - Rotation.Vector() * Tuning.ChaseDistance + BlendOffset, Rotation);
+		return;
+	}
 	FVector2D DesiredLookAhead(Velocity.X * Tuning.LookAheadTime, Velocity.Y * Tuning.LookAheadTime);
 	if (DesiredLookAhead.Size() > Tuning.MaxLookAhead)
 	{

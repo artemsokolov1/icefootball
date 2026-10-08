@@ -124,6 +124,10 @@ void ASkatePlayerController::BuildInputMappings()
 	Imc->MapKey(IA_Camera, EKeys::Gamepad_DPad_Up);
 	Imc->MapKey(IA_Camera, EKeys::F2);
 
+	IA_Chase = MakeAction(TEXT("IA_Skate_CameraChase"), EInputActionValueType::Boolean);
+	Imc->MapKey(IA_Chase, EKeys::Gamepad_RightThumbstick);
+	Imc->MapKey(IA_Chase, EKeys::C);
+
 	IA_FpsCap = MakeAction(TEXT("IA_Skate_FpsCap"), EInputActionValueType::Boolean);
 	Imc->MapKey(IA_FpsCap, EKeys::Gamepad_DPad_Down);
 	Imc->MapKey(IA_FpsCap, EKeys::F3);
@@ -180,6 +184,7 @@ void ASkatePlayerController::SetupInputComponent()
 	Eic->BindAction(IA_BallToFeet, ETriggerEvent::Started, this, &ASkatePlayerController::OnBallToFeet);
 	Eic->BindAction(IA_Debug, ETriggerEvent::Started, this, &ASkatePlayerController::OnToggleDebug);
 	Eic->BindAction(IA_Camera, ETriggerEvent::Started, this, &ASkatePlayerController::OnToggleCamera);
+	Eic->BindAction(IA_Chase, ETriggerEvent::Started, this, &ASkatePlayerController::OnToggleChase);
 	Eic->BindAction(IA_FpsCap, ETriggerEvent::Started, this, &ASkatePlayerController::OnCycleFpsCap);
 	Eic->BindAction(IA_ToggleBall, ETriggerEvent::Started, this, &ASkatePlayerController::OnToggleBall);
 	Eic->BindAction(IA_Switch, ETriggerEvent::Started, this, &ASkatePlayerController::OnSwitchSkater);
@@ -908,6 +913,14 @@ void ASkatePlayerController::OnToggleDebug(const FInputActionValue& Value)
 	if (ASkateCharacter* Skater = GetSkater())
 	{
 		Skater->SetDebugEnabled(!Skater->IsDebugEnabled());
+	}
+}
+
+void ASkatePlayerController::OnToggleChase(const FInputActionValue& Value)
+{
+	if (CameraRig)
+	{
+		CameraRig->ToggleChaseMode();
 	}
 }
 

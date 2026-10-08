@@ -5,6 +5,8 @@
 // or the teammate while this skater has the ball), and the camera pulls back so both stay in frame.
 // The skater position itself is followed without lag (no hidden input latency); only the interest
 // offset, the zoom and a small look-ahead are smoothed. The camera never yaws with the skater. No shake.
+// Chase mode (R3): behind the skater, low and close, the yaw eases after the skater's heading
+// (Slapshot-style); the stick is then relative to the camera, so "up" is always forward.
 // Static mode (diagnostics): fixed view of the whole rink, so movement can be judged without
 // any camera motion.
 #pragma once
@@ -34,9 +36,11 @@ public:
 	void SetStaticMode(bool bInStatic);
 	bool IsStaticMode() const { return bStaticMode; }
 	void ToggleStaticMode() { SetStaticMode(!bStaticMode); }
+	void ToggleChaseMode();
+	bool IsChaseMode() const { return bChaseMode; }
 
-	/** Yaw (deg) the stick is projected with. Same in both modes, so controls never change meaning. */
-	float GetControlYaw() const { return Tuning.Yaw; }
+	/** Yaw (deg) the stick is projected with: the fixed side yaw, or the chase camera's current yaw. */
+	float GetControlYaw() const { return bChaseMode && !bStaticMode ? ChaseYaw : Tuning.Yaw; }
 
 	/** Snaps the look-ahead (after a reset/teleport). */
 	void SnapToTarget();
@@ -57,6 +61,8 @@ private:
 	FVector2D InterestOffsetVelocity = FVector2D::ZeroVector;
 	float Zoom = 0.f; // current smoothed distance; 0 = not initialised
 	bool bStaticMode = false;
+	bool bChaseMode = false;
+	float ChaseYaw = 0.f;
 	FVector StaticFocus = FVector::ZeroVector;
 	FVector2D LookAhead = FVector2D::ZeroVector;
 	FVector2D LookAheadVelocity = FVector2D::ZeroVector;

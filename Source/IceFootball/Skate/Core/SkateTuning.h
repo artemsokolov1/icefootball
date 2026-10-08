@@ -689,6 +689,20 @@ struct FSkateCameraTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.01"))
 	float LookAheadSmoothTime = 0.5f;
 
+	/** Chase camera (R3): behind the skater, turning with its heading (Slapshot-style). Stick "up" = where the camera looks. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "-80", ClampMax = "-5"))
+	float ChasePitch = -22.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "200"))
+	float ChaseDistance = 900.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "20", ClampMax = "120"))
+	float ChaseFieldOfView = 70.f;
+
+	/** The chase camera's yaw follows the heading with this time constant (s): turns read, but the view does not whip. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.01"))
+	float ChaseYawSmoothTime = 0.35f;
+
 	/** Static diagnostic camera: pitch and distance, looking at the rink centre. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "-89", ClampMax = "-20"))
 	float StaticPitch = -62.f;
