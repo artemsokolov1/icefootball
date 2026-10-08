@@ -326,6 +326,12 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	State.TimeSinceFail += Dt;
 
 	// ---- Command input: charge, buffers ----
+	if (Actions.bThroughPressed && !State.bCharging && !State.bChargingPass)
+	{
+		State.PendingPassPower = 1.f;
+		State.PushBuffer = Tuning.PushBufferTime;
+		State.bPendingThrough = true;
+	}
 	if (Actions.bKickPressed)
 	{
 		State.bCharging = true;
@@ -359,6 +365,7 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 		{
 			State.PendingPassPower = SkateMath::Clamp01(State.PassChargeTime / SkateMath::Max(Tuning.PassMaxChargeTime, 0.01f));
 			State.PushBuffer = Tuning.PushBufferTime;
+			State.bPendingThrough = false;
 		}
 	}
 
@@ -435,8 +442,9 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 	{
 		if (bActionReach && bGapOk)
 		{
-			Impulse = MakePush(Tuning, Query, State.PendingPassPower);
+			Impulse = State.bPendingThrough ? MakeThroughPass(Tuning, Query) : MakePush(Tuning, Query, State.PendingPassPower);
 			State.PushBuffer = -1.f;
+			State.bPendingThrough = false;
 		}
 		else
 		{
@@ -557,6 +565,26 @@ FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tun
 	const FSkateVec2 Dir = LimitDeviation(Normal, Desired, Tuning.PushMaxDeviation);
 	const float Speed = BaseSpeed + Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
 
+	Impulse.Direction = Dir;
+	Impulse.NewBallVelocity = FSkateVec3(Dir * Speed, Query.BallVel.Z);
+	return Impulse;
+}
+
+FSkateBallImpulse FSkateBallControl::MakeThroughPass(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query)
+{
+	if (!Query.bThroughTargetValid)
+	{
+		return MakePush(Tuning, Query, 1.f); // nobody to play through: a firm pass along the stick
+	}
+	FSkateBallImpulse Impulse;
+	Impulse.Kind = ESkateImpulseKind::Push;
+	Impulse.Power = 1.f;
+	const FSkateVec2 Normal = ContactNormal(Query);
+	const FSkateVec2 ToTarget = Query.ThroughTargetPos - Query.BallPos.XY();
+	const FSkateVec2 Dir = LimitDeviation(Normal, ToTarget.GetSafeNormal(Normal), Tuning.PushMaxDeviation);
+	const float MaxSpeed = SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed);
+	const float Needed = Tuning.ThroughArriveSpeed + Tuning.PassLossPerMetre * ToTarget.Size() / 100.f;
+	const float Speed = SkateMath::Clamp(Needed, Tuning.PushSpeed, MaxSpeed) + Tuning.PushCarry * SkateMath::Max(0.f, Query.SkaterVel.Dot(Dir));
 	Impulse.Direction = Dir;
 	Impulse.NewBallVelocity = FSkateVec3(Dir * Speed, Query.BallVel.Z);
 	return Impulse;

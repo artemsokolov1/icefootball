@@ -146,6 +146,8 @@ namespace SkateTeamTestsDetail
 			Q.bPassTargetValid = Team[1 - Index] == Team[Index];
 			Q.PassTargetPos = S[1 - Index].Pos;
 			Q.PassTargetVel = S[1 - Index].State.Velocity;
+			Q.bThroughTargetValid = Q.bPassTargetValid;
+			Q.ThroughTargetPos = S[1 - Index].Pos + (Goal.Center - S[1 - Index].Pos).GetSafeNormal() * T.BallControl.ThroughLead;
 			return Q;
 		}
 
@@ -202,7 +204,8 @@ namespace SkateTeamTestsDetail
 					// held past the protection time, is knocked to the taker's feet. No ball to take: a body check.
 					const FSkatePossessionTuning& PT = T.BallControl.Possession;
 					const bool bOpponentBall = Holder != NoHolder && Holder != KeeperHolder && Team[Holder] != Team[Index];
-					if (bOpponentBall && (BallPos.XY() - S[Index].Pos).Size() <= PT.TakeRange && S[Holder].Control.Possession.TimeHeld >= PT.StealProtectTime)
+					const bool bFromBehind = bOpponentBall && S[Holder].State.Heading.Dot((S[Index].Pos - S[Holder].Pos).GetSafeNormal()) < PT.TakeBehindDot;
+					if (bOpponentBall && !bFromBehind && (BallPos.XY() - S[Index].Pos).Size() <= PT.TakeRange && S[Holder].Control.Possession.TimeHeld >= PT.StealProtectTime)
 					{
 						FSkateBallControl::ReleasePossession(S[Holder].Control, ESkatePossessionLoss::Taken);
 						Holder = NoHolder;
@@ -725,6 +728,61 @@ namespace SkateTeamTestsDetail
 		Out.push_back(R);
 	}
 
+	void TestNoTakeFromBehind(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.NoTakeFromBehind");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));    // carrier faces +X
+		Sim.Place(1, FSkateVec2(-120.f, 30.f), FSkateVec2(1.f, 0.f)); // opponent right behind it
+		Sim.GiveBall(0, Dt);
+		bool bTook = false;
+		Sim.Run(2.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			In[0].Brake = 1.f;
+			In[1].Brake = 1.f;
+			Sim.S[1].bTakePressed = true;
+			bTook |= Sim.S[1].Control.Possession.bPossessed;
+		});
+		R.bPassed = !bTook && Sim.S[0].Control.Possession.bPossessed;
+		R.Details = Fmt("opponent 1.2 m behind the carrier hammers the take button for 2 s: took it %d, carrier keeps it %d", bTook ? 1 : 0,
+			Sim.S[0].Control.Possession.bPossessed ? 1 : 0);
+		Out.push_back(R);
+	}
+
+	void TestThroughPass(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Team.ThroughPassLeadsTheTeammate");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
+		Sim.Place(1, FSkateVec2(900.f, 400.f), FSkateVec2(1.f, 0.f)); // teammate ahead-right, the goal is far +X
+		Sim.GiveBall(0, Dt);
+		Sim.Run(0.5f, Dt, [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1].Brake = 1.f; });
+		bool bPressed = false;
+		FSkateVec2 Dir;
+		float Speed = 0.f;
+		Sim.Run(1.f, Dt, [&](float, FSkateMoveInput* In, FSkateBallActionInput* Act)
+		{
+			In[0].Brake = 1.f;
+			In[1].Brake = 1.f;
+			if (!bPressed) { Act[0].bThroughPressed = true; bPressed = true; }
+			if (Sim.LastKind == ESkateImpulseKind::Push && Sim.LastSource == 0 && Dir.SizeSquared() < 0.5f && Sim.BallSinceImpulse < Dt)
+			{
+				Dir = Sim.BallVel.XY().GetSafeNormal();
+				Speed = Sim.BallVel.XY().Size();
+			}
+		});
+		// Aimed at the space ahead of the teammate (ThroughLead towards the goal), not at the teammate itself.
+		const FSkateVec2 Target = Sim.S[1].Pos + (Sim.Goal.Center - Sim.S[1].Pos).GetSafeNormal() * Sim.T.BallControl.ThroughLead;
+		const float ErrTarget = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(Dir.Dot(Target.GetSafeNormal()), -1.f, 1.f));
+		const float ErrMate = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(Dir.Dot(Sim.S[1].Pos.GetSafeNormal()), -1.f, 1.f));
+		R.bPassed = Dir.SizeSquared() > 0.5f && ErrTarget < 4.f && ErrMate > 6.f && Speed > 1200.f;
+		R.Details = Fmt("through pass: %.1f deg from the space ahead of the teammate, %.1f deg from the teammate, %.0f cm/s", ErrTarget, ErrMate, Speed);
+		Out.push_back(R);
+	}
+
 	void TestOpponentSteals(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R("Match.OpponentStealsHeldBall");
@@ -1178,6 +1236,8 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestDefenderFacesTheBall(Out);
 	TestNoStealWithoutPoke(Out);
 	TestPokeTakesTheBall(Out);
+	TestNoTakeFromBehind(Out);
+	TestThroughPass(Out);
 	TestOpponentSteals(Out);
 	TestOpponentAttacksAndShoots(Out);
 	TestOpponentDodgesBlocker(Out);

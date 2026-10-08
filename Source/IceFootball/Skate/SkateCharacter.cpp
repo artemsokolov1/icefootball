@@ -158,20 +158,32 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 	MoveInput.Magnitude = LastStick.Magnitude;
 	MoveInput.Brake = LastBrake;
 	MoveInput.Boost = LastBoost;
-	// Without the ball the skater always faces it: a stick that leads away from the ball skates backwards.
+	// Defending: with an opponent carrying the ball nearby, a stick that leads away from it skates backwards,
+	// so the skater keeps facing the play. Anywhere else the stick is plain forward skating.
 	if (BallControl && !BallControl->HasBall() && LastStick.Magnitude > 0.3f)
 	{
 		if (const ASkateBall* Ball = BallControl->GetBall())
 		{
-			const FVector ToBall = (Ball->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
-			MoveInput.bBackward = LastStick.Direction.X * ToBall.X + LastStick.Direction.Y * ToBall.Y < -0.17f; // > 100 deg away
+			const USkateBallControlComponent* Holder = Cast<USkateBallControlComponent>(Ball->GetHolder());
+			const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
+			const FVector Delta = Ball->GetActorLocation() - GetActorLocation();
+			const FVector ToBall = Delta.GetSafeNormal2D();
+			MoveInput.bBackward = Carrier && Carrier->GetTeam() != Team && Delta.Size2D() < 1200.f
+				&& LastStick.Direction.X * ToBall.X + LastStick.Direction.Y * ToBall.Y < -0.17f; // > 100 deg away
 		}
 	}
 	SkateMovement->SetSkateInput(IsStunned() ? FSkateMoveInput() : MoveInput);
 
 	if (BallControl)
 	{
-		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed, Input.bKickReleased);
+		// X: a shot with the ball at the feet or in reach; otherwise the take (or a body check on Normal).
+		const ESkateContactReason Reach = BallControl->GetReport().Reason;
+		const bool bBallPlayable = BallControl->HasBall() || Reach == ESkateContactReason::Reachable || Reach == ESkateContactReason::ActionReachOnly;
+		if (Input.bKickPressed && !bBallPlayable)
+		{
+			StartTake();
+		}
+		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed && bBallPlayable, Input.bKickReleased, Input.bThroughPressed);
 	}
 }
 
@@ -181,8 +193,13 @@ bool ASkateCharacter::CanTakeNow() const
 	const USkateBallControlComponent* Holder = Ball ? Cast<USkateBallControlComponent>(Ball->GetHolder()) : nullptr;
 	const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
 	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
-	return Carrier && Carrier->GetTeam() != Team && TimeSinceTake >= PT.TakeCooldown && !IsStunned()
-		&& FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) <= PT.TakeRange;
+	if (!Carrier || Carrier->GetTeam() == Team || TimeSinceTake < PT.TakeCooldown || IsStunned()
+		|| FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) > PT.TakeRange)
+	{
+		return false;
+	}
+	const FVector ToMe = (GetActorLocation() - Carrier->GetActorLocation()).GetSafeNormal2D();
+	return FVector::DotProduct(Carrier->GetActorForwardVector().GetSafeNormal2D(), ToMe) >= PT.TakeBehindDot;
 }
 
 void ASkateCharacter::StartTake()

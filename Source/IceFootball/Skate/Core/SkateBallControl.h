@@ -112,6 +112,9 @@ struct FSkateContactQuery
 	bool bPassTargetValid = false;
 	FSkateVec2 PassTargetPos;
 	FSkateVec2 PassTargetVel;
+	/** Through pass target: the point ahead of the teammate towards the goal (inside the rink). */
+	bool bThroughTargetValid = false;
+	FSkateVec2 ThroughTargetPos;
 
 	/** Boards near the skater: the carried ball is kept in front of them instead of being pressed in. */
 	static constexpr int MaxWalls = 4;
@@ -163,6 +166,8 @@ struct FSkateBallActionInput
 	bool bPushReleased = false;
 	bool bKickPressed = false;
 	bool bKickReleased = false;
+	/** Through pass (Y): one press, no charge - into the space ahead of the teammate. */
+	bool bThroughPressed = false;
 };
 
 struct FSkatePossessionState
@@ -218,6 +223,7 @@ struct FSkateBallControlState
 	int PlannedFoot = SkateFoot::Right;
 
 	float PushBuffer = -1.f;   // >= 0 while a released pass waits for the ball
+	bool bPendingThrough = false; // the waiting pass is a through pass
 	float KickBuffer = -1.f;   // >= 0 while a released kick waits for the ball
 	float PendingKickPower = 0.f;
 
@@ -276,6 +282,7 @@ public:
 private:
 	static FSkateBallImpulse MakeTouch(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
 	static FSkateBallImpulse MakePush(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Power);
+	static FSkateBallImpulse MakeThroughPass(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
 	static FSkateBallImpulse MakeKick(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Power);
 	static FSkateBallImpulse MakeBodyBlock(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
 	static FSkateVec2 DesiredDirection(const FSkateContactQuery& Query, float MinStick);

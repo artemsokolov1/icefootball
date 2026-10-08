@@ -213,12 +213,16 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		TArray<FString> Prompts;
 		if (BallState->HasBall())
 		{
-			if (Pc->GetTeam().Num() > 1) { Prompts.Add(bGamepad ? TEXT("A  pass") : TEXT("J  pass")); }
+			if (Pc->GetTeam().Num() > 1)
+			{
+				Prompts.Add(bGamepad ? TEXT("A  pass") : TEXT("J  pass"));
+				Prompts.Add(bGamepad ? TEXT("Y  through pass") : TEXT("I  through pass"));
+			}
 			Prompts.Add(bGamepad ? TEXT("X  shoot (hold = harder)") : TEXT("K  shoot (hold = harder)"));
 		}
 		else if (Skater->CanTakeNow())
 		{
-			Prompts.Add(bGamepad ? TEXT("B  TAKE THE BALL") : TEXT("L  TAKE THE BALL"));
+			Prompts.Add(bGamepad ? TEXT("X  TAKE THE BALL") : TEXT("K  TAKE THE BALL"));
 		}
 		float X = Canvas->ClipX * 0.5f - 90.f * Prompts.Num();
 		for (const FString& Prompt : Prompts)
@@ -230,7 +234,7 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		}
 		// First-match tutorial.
 		static const TCHAR* Steps[] = { TEXT("Catch the ball: skate into it"), TEXT("Press X to shoot (hold for a harder shot)"),
-			TEXT("Lost it? Get close to the opponent and press B to take the ball"), nullptr };
+			TEXT("Lost it? Get in front of the opponent and press X to take the ball"), nullptr };
 		const int32 Step = Pc->GetTutorialStep();
 		if (Step >= 0 && Step < 3 && Steps[Step])
 		{
@@ -503,8 +507,8 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 	CursorY = Canvas->ClipY - 7.f * LineHeight - 8.f;
 	Line(TEXT("World: green = velocity, blue = blades, yellow = stick, orange = lateral accel,"), Dim);
 	Line(TEXT("       reach zone green/cyan = trap/A-X allowed, grey = not reachable, yellow = carry point, magenta = last impulse"), Dim);
-	Line(TEXT("Pad: LS move | LT brake | RT boost | A pass | X hold/release shot | B take the ball (no ball near: body check on Normal) | Y new match | RB ball to feet"), Dim);
-	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R difficulty | D-pad Down FPS cap | Menu ball on/off"), Dim);
-	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J pass | K shot | L / LCtrl take | R new match | T ball"), Dim);
+	Line(TEXT("Pad: LS move | LT brake | RT boost | A pass | Y through pass | X shot / take the ball (no ball near: body check on Normal) | Menu new match | RB ball to feet"), Dim);
+	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R difficulty | D-pad Down FPS cap | F4 ball on/off"), Dim);
+	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J pass | I through pass | K shot / take | R new match | T ball"), Dim);
 	Line(TEXT("      F1 debug | F2 camera | 1/2/3 preset | F3 FPS cap | F4 ball on/off"), Dim);
 }

@@ -97,10 +97,9 @@ void ASkatePlayerController::BuildInputMappings()
 	Imc->MapKey(IA_Boost, EKeys::Gamepad_RightTriggerAxis);
 	Imc->MapKey(IA_Boost, EKeys::LeftShift);
 
-	IA_Take = MakeAction(TEXT("IA_Skate_Take"), EInputActionValueType::Boolean);
-	Imc->MapKey(IA_Take, EKeys::Gamepad_FaceButton_Right);
-	Imc->MapKey(IA_Take, EKeys::L);
-	Imc->MapKey(IA_Take, EKeys::LeftControl);
+	IA_Through = MakeAction(TEXT("IA_Skate_ThroughPass"), EInputActionValueType::Boolean);
+	Imc->MapKey(IA_Through, EKeys::Gamepad_FaceButton_Top);
+	Imc->MapKey(IA_Through, EKeys::I);
 
 	// ---- Ball ----
 	IA_Push = MakeAction(TEXT("IA_Skate_Push"), EInputActionValueType::Boolean);
@@ -113,7 +112,7 @@ void ASkatePlayerController::BuildInputMappings()
 
 	// ---- Test tools ----
 	IA_Reset = MakeAction(TEXT("IA_Skate_Reset"), EInputActionValueType::Boolean);
-	Imc->MapKey(IA_Reset, EKeys::Gamepad_FaceButton_Top);
+	Imc->MapKey(IA_Reset, EKeys::Gamepad_Special_Right);
 	Imc->MapKey(IA_Reset, EKeys::R);
 
 	IA_BallToFeet = MakeAction(TEXT("IA_Skate_BallToFeet"), EInputActionValueType::Boolean);
@@ -133,7 +132,6 @@ void ASkatePlayerController::BuildInputMappings()
 	Imc->MapKey(IA_FpsCap, EKeys::F3);
 
 	IA_ToggleBall = MakeAction(TEXT("IA_Skate_ToggleBall"), EInputActionValueType::Boolean);
-	Imc->MapKey(IA_ToggleBall, EKeys::Gamepad_Special_Right);
 	Imc->MapKey(IA_ToggleBall, EKeys::F4);
 
 	IA_Switch = MakeAction(TEXT("IA_Skate_SwitchSkater"), EInputActionValueType::Boolean);
@@ -174,7 +172,7 @@ void ASkatePlayerController::SetupInputComponent()
 	Eic->BindAction(IA_Brake, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBrakeReleased);
 	Eic->BindAction(IA_Boost, ETriggerEvent::Triggered, this, &ASkatePlayerController::OnBoost);
 	Eic->BindAction(IA_Boost, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBoostReleased);
-	Eic->BindAction(IA_Take, ETriggerEvent::Started, this, &ASkatePlayerController::OnTake);
+	Eic->BindAction(IA_Through, ETriggerEvent::Started, this, &ASkatePlayerController::OnThrough);
 
 	Eic->BindAction(IA_Push, ETriggerEvent::Started, this, &ASkatePlayerController::OnPushPressed);
 	Eic->BindAction(IA_Push, ETriggerEvent::Completed, this, &ASkatePlayerController::OnPushReleased);
@@ -339,7 +337,7 @@ void ASkatePlayerController::RefreshTeam()
 	}
 }
 
-void ASkatePlayerController::SwitchTo(int32 Index)
+void ASkatePlayerController::SwitchTo(int32 Index, bool bLatchStick)
 {
 	if (!Team.IsValidIndex(Index) || Index == ActiveIndex)
 	{
@@ -356,7 +354,7 @@ void ASkatePlayerController::SwitchTo(int32 Index)
 	}
 	ActiveIndex = Index;
 	LatchStick = LastRawStick;
-	bStickLatched = LastRawStick.Size() > 0.3;
+	bStickLatched = bLatchStick && LastRawStick.Size() > 0.3;
 	LatchTime = 0.f;
 	bPushEdge = false;
 	bPushReleaseEdge = false;
@@ -417,7 +415,7 @@ void ASkatePlayerController::UpdateAutoSwitch()
 		}
 	}
 	// An opponent has the ball: the player is always the skater nearest to it (the defender that matters).
-	if (Target == INDEX_NONE && bAutoSwitch && CachedArena.IsValid() && CachedArena->GetBall())
+	if (Target == INDEX_NONE && bAutoSwitch && TimeSinceManualSwitch > 2.f && CachedArena.IsValid() && CachedArena->GetBall())
 	{
 		const ASkateBall* Ball = CachedArena->GetBall();
 		const USkateBallControlComponent* HolderComp = Cast<USkateBallControlComponent>(Ball->GetHolder());
@@ -493,6 +491,50 @@ void ASkatePlayerController::SyncTeamSettings()
 		{
 			Mate->SetBallInteractionEnabled(Active->IsBallInteractionEnabled());
 		}
+	}
+}
+
+void ASkatePlayerController::UpdateThroughTargets()
+{
+	const ASkateArena* Arena = CachedArena.Get();
+	if (!Arena)
+	{
+		return;
+	}
+	const FSkateGoalFrame Goal = Arena->GetGoalFrame(0); // team 0 attacks +X
+	const FVector2D GoalCentre(Goal.Center.X, Goal.Center.Y);
+	const FVector2D Half = Arena->GetLayout().RinkSize * 0.5f;
+	const float Lead = Team.Num() > 0 && Team[0].IsValid() ? Team[0]->GetActiveTuning().BallControl.ThroughLead : 700.f;
+	for (int32 Index = 0; Index < Team.Num(); ++Index)
+	{
+		ASkateCharacter* Member = Team[Index].Get();
+		if (!Member || !Member->GetBallControl())
+		{
+			continue;
+		}
+		const ASkateCharacter* Mate = nullptr;
+		float MateDist = TNumericLimits<float>::Max();
+		for (int32 Other = 0; Other < Team.Num(); ++Other)
+		{
+			const ASkateCharacter* Candidate = Other != Index ? Team[Other].Get() : nullptr;
+			const float Dist = Candidate ? static_cast<float>(FVector::Dist2D(Candidate->GetActorLocation(), Member->GetActorLocation())) : MateDist;
+			if (Candidate && Dist < MateDist)
+			{
+				MateDist = Dist;
+				Mate = Candidate;
+			}
+		}
+		if (!Mate)
+		{
+			Member->GetBallControl()->SetThroughTarget(false, FVector2D::ZeroVector);
+			continue;
+		}
+		const FVector2D MatePos(Mate->GetActorLocation());
+		const FVector2D Dir = (GoalCentre - MatePos).GetSafeNormal();
+		FVector2D Target = MatePos + Dir * Lead;
+		Target.X = FMath::Clamp(Target.X, -Half.X + 200.f, Goal.Center.X - 150.f); // never behind the goal line
+		Target.Y = FMath::Clamp(Target.Y, -Half.Y + 200.f, Half.Y - 200.f);
+		Member->GetBallControl()->SetThroughTarget(true, Target);
 	}
 }
 
@@ -655,6 +697,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 	}
 	RefreshTeam();
 	UpdateAutoSwitch();
+	UpdateThroughTargets();
 
 	ASkateCharacter* Skater = GetSkater();
 	if (Skater)
@@ -709,6 +752,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		FrameInput.bPushReleased = bPushReleaseEdge;
 		FrameInput.bKickPressed = bKickPressEdge;
 		FrameInput.bKickReleased = bKickReleaseEdge;
+		FrameInput.bThroughPressed = bThroughEdge;
 		if (CachedArena.IsValid() && CachedArena->IsFaceOff())
 		{
 			// Everybody waits for the drop: no stick, no buttons, skates held.
@@ -723,7 +767,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 			LatchTime += DeltaTime;
 			const bool bReleased = FrameInput.RawStick.Size() < 0.3;
 			const bool bMoved = !bReleased && FVector2D::DotProduct(FrameInput.RawStick.GetSafeNormal(), LatchStick.GetSafeNormal()) < 0.5; // > 60 deg
-			if (bReleased || bMoved || bPushEdge || bKickPressEdge || LatchTime > 1.5f)
+			if (bReleased || bMoved || bPushEdge || bKickPressEdge || bThroughEdge || LatchTime > 0.6f)
 			{
 				bStickLatched = false;
 			}
@@ -739,6 +783,12 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 	bPushReleaseEdge = false;
 	bKickPressEdge = false;
 	bKickReleaseEdge = false;
+	bThroughEdge = false;
+	TimeSinceManualSwitch += DeltaTime;
+	if (TutorialStep == 2 && Skater && Skater->GetTimeSinceTake() < 0.05f)
+	{
+		TutorialStep = 3;
+	}
 
 	SyncTeamSettings();
 	DriveAI();
@@ -778,20 +828,10 @@ void ASkatePlayerController::OnBrakeReleased(const FInputActionValue& Value)
 	BrakeValue = 0.f;
 }
 
-void ASkatePlayerController::OnTake(const FInputActionValue& Value)
+void ASkatePlayerController::OnThrough(const FInputActionValue& Value)
 {
-	ASkateCharacter* Skater = GetSkater();
-	if (!Skater || bBotsVsBots || (CachedArena.IsValid() && (CachedArena->IsFaceOff() || CachedArena->IsGoalPause())))
-	{
-		return;
-	}
+	bThroughEdge = true;
 	bStickLatched = false;
-	const float Before = Skater->GetTimeSinceTake();
-	Skater->StartTake();
-	if (Skater->GetTimeSinceTake() < Before && TutorialStep == 2)
-	{
-		TutorialStep = 3;
-	}
 }
 
 void ASkatePlayerController::OnBoost(const FInputActionValue& Value)
@@ -929,7 +969,9 @@ void ASkatePlayerController::OnSwitchSkater(const FInputActionValue& Value)
 {
 	if (Team.Num() > 1)
 	{
-		SwitchTo((ActiveIndex + 1) % Team.Num());
+		// By hand: immediate control, and the automatic rules stay out of the way for a while.
+		SwitchTo((ActiveIndex + 1) % Team.Num(), /*bLatchStick*/ false);
+		TimeSinceManualSwitch = 0.f;
 	}
 }
 

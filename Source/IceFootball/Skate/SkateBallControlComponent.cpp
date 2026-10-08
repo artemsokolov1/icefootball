@@ -42,8 +42,9 @@ void USkateBallControlComponent::SetTuning(const FSkateTuning& InTuning)
 	}
 }
 
-void USkateBallControlComponent::QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease)
+void USkateBallControlComponent::QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease, bool bThroughPress)
 {
+	PendingActions.bThroughPressed |= bThroughPress;
 	PendingActions.bPushPressed |= bPushPress;
 	PendingActions.bPushReleased |= bPushRelease;
 	PendingActions.bKickPressed |= bKickPress;
@@ -81,6 +82,12 @@ bool USkateBallControlComponent::TryTake(float Range, float Protect, float BallS
 	const ASkateCharacter* Carrier = Other ? Cast<ASkateCharacter>(Other->GetOwner()) : nullptr;
 	if (!Carrier || Carrier->GetTeam() == Skater->GetTeam() || Other->GetControlState().Possession.TimeHeld < Protect
 		|| FVector::Dist2D(B->GetActorLocation(), Skater->GetActorLocation()) > Range)
+	{
+		return false;
+	}
+	// Not from behind: the taker must be in front of or beside the carrier.
+	const FVector ToTaker = (Skater->GetActorLocation() - Carrier->GetActorLocation()).GetSafeNormal2D();
+	if (FVector::DotProduct(Carrier->GetActorForwardVector().GetSafeNormal2D(), ToTaker) < ControlTuning.Possession.TakeBehindDot)
 	{
 		return false;
 	}
@@ -235,6 +242,8 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		}
 		Query.BallTimeSinceImpulse = B->GetTimeSinceGameplayImpulse();
 		Query.bIncomingPass = B->IsPassFor(this);
+		Query.bThroughTargetValid = bThroughTargetValid;
+		Query.ThroughTargetPos = FSkateVec2(static_cast<float>(ThroughTarget.X), static_cast<float>(ThroughTarget.Y));
 		// Pass assist target: the nearest teammate.
 		float MateDist = TNumericLimits<float>::Max();
 		for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)

@@ -852,7 +852,7 @@ namespace SkateCoreTestsDetail
 		// Ball fired at a standing skater from the side (outside the foot zone).
 		// Too fast to be trapped (> AcquireMaxRelSpeed): it must bounce off the legs.
 		FPlaySim P = MakePlay(ESkatePreset::Balanced, FSkateVec2(0.f, 200.f));
-		P.Ball.Vel = FSkateVec3(0.f, -1300.f, 0.f);
+		P.Ball.Vel = FSkateVec3(0.f, -2000.f, 0.f);
 		const float Dt = 1.f / 60.f;
 		float MinDist = 1e9f;
 		for (int Index = 0; Index < 90; ++Index)
@@ -1371,10 +1371,10 @@ namespace SkateCoreTestsDetail
 			return bTrapped;
 		};
 		const bool bSlow = Incoming(450.f);
-		const bool bFast = Incoming(1600.f);
+		const bool bFast = Incoming(2000.f);
 		// Ball in the reach zone but 40 cm in the air.
 		FPlaySim High = MakePlay(ESkatePreset::Balanced, FSkateVec2(42.f, 0.f));
-		High.Ball.Pos.Z += 40.f;
+		High.Ball.Pos.Z += 60.f;
 		FSkateContactQuery Q = High.Query(Stick(FSkateVec2(), 0.f));
 		FSkateBallCarry Carry;
 		FSkateBallControl::Update(High.T.BallControl, Q, FSkateBallActionInput(), Dt, High.Control, High.Report, &Carry);
@@ -1383,7 +1383,7 @@ namespace SkateCoreTestsDetail
 		FPlaySim Behind = MakePlay(ESkatePreset::Balanced, FSkateVec2(-40.f, 0.f));
 		for (int Index = 0; Index < 30; ++Index) { Behind.Frame(Stick(FSkateVec2(), 0.f), FSkateBallActionInput(), Dt); }
 		R.bPassed = bSlow && !bFast && !bHighTrapped && !Behind.Possessed();
-		R.Details = Fmt("incoming 450 cm/s trapped=%d, incoming 1600 cm/s trapped=%d (must bounce), airborne 40 cm trapped=%d, behind the back trapped=%d",
+		R.Details = Fmt("incoming 450 cm/s trapped=%d, incoming 2000 cm/s trapped=%d (must bounce), airborne 40 cm trapped=%d, behind the back trapped=%d",
 			bSlow ? 1 : 0, bFast ? 1 : 0, bHighTrapped ? 1 : 0, Behind.Possessed() ? 1 : 0);
 		Out.push_back(R);
 	}

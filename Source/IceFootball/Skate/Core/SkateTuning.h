@@ -114,7 +114,7 @@ struct FSkateMovementTuning
 
 	/** Cap on how fast grip can bend the velocity (cm/s^2). At speed v, minimum arc radius = v^2 / this. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "100"))
-	float MaxLateralAccel = 1500.f;
+	float MaxLateralAccel = 1700.f;
 
 	/** Fraction of the lateral speed removed by grip that is redirected along the blade (carving keeps speed).
 	 *  The rest is scrubbed (skid). Falls off with slip angle, see SkidSlipAngle. */
@@ -127,11 +127,11 @@ struct FSkateMovementTuning
 
 	/** Heading turn rate (deg/s) when nearly stopped - compact pivot turns. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "30"))
-	float TurnRateLowSpeed = 720.f;
+	float TurnRateLowSpeed = 800.f;
 
 	/** Heading turn rate (deg/s) at TurnRateSpeedRef and above. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "30"))
-	float TurnRateHighSpeed = 170.f;
+	float TurnRateHighSpeed = 200.f;
 
 	/** Speed (cm/s) at which the turn rate reaches TurnRateHighSpeed (smoothstep blend from 0). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "10"))
@@ -167,7 +167,7 @@ struct FSkateMovementTuning
 	/** In a reverse stop the blades swing round to the new direction at this rate (deg/s) and the skater
 	 *  already pushes that way, so the stop flows straight into acceleration the other way. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "90"))
-	float ReverseTurnRate = 900.f;
+	float ReverseTurnRate = 1100.f;
 
 	/** A reverse stop needs a FLICK: the stick must jump (or come from neutral) into the backward sector
 	 *  within this time (s). Sweeping the stick around the rim (circling) is a turn, never a stop. */
@@ -214,20 +214,20 @@ struct FSkatePossessionTuning
 
 	/** Trap zone: a low ball whose centre is within this distance (cm) of the skater centre... */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30"))
-	float TrapDistance = 90.f;
+	float TrapDistance = 100.f;
 
 	/** ...and within this angle (deg) of the blades' heading is trapped - in front AND beside the skater,
 	 *  not only exactly in front. It then swings around to the front (OrbitRate). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "30", ClampMax = "180"))
-	float TrapHalfAngle = 130.f;
+	float TrapHalfAngle = 160.f;
 
 	/** Ball lowest point up to this high above the ice (cm) can still be trapped (a small hop off the board). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
-	float TrapMaxHeight = 28.f;
+	float TrapMaxHeight = 45.f;
 
 	/** Incoming balls faster than this (cm/s, relative to the skater) bounce off instead of being trapped. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Possession", meta = (ClampMin = "0"))
-	float AcquireMaxRelSpeed = 1200.f;
+	float AcquireMaxRelSpeed = 1600.f;
 
 	/** A pass (from a teammate or the keeper's throw) can be received up to this relative speed (cm/s):
 	 *  a firm pass is cushioned instead of bouncing off. Shots keep the AcquireMaxRelSpeed limit. */
@@ -252,6 +252,11 @@ struct FSkatePossessionTuning
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
 	float TakeCooldown = 1.0f;
+
+	/** No take from behind: the taker must not be deeper in the carrier's back sector than this (dot of the
+	 *  carrier's heading with the direction to the taker; -0.3 = more than ~107 deg behind is forbidden). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "-1", ClampMax = "1"))
+	float TakeBehindDot = -0.3f;
 
 	/** Speed (cm/s) the knocked-loose ball gets towards the taker's feet. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
@@ -418,6 +423,13 @@ struct FSkateBallControlTuning
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
 	float PassLossPerMetre = 40.f;
+
+	/** Through pass (Y): played this far (cm) ahead of the teammate towards the goal, arriving at ThroughArriveSpeed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
+	float ThroughLead = 700.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
+	float ThroughArriveSpeed = 650.f;
 
 	/** Pass ball speed (cm/s) at full charge. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))

@@ -88,10 +88,12 @@ private:
 	void BuildInputMappings();
 	void EnsureCameraRig();
 	void RefreshTeam();
-	void SwitchTo(int32 Index);
+	void SwitchTo(int32 Index, bool bLatchStick = true);
 	void UpdateAutoSwitch();
 	/** Every skater the player is not controlling gets its input from FSkateSkaterAI. */
 	void DriveAI();
+	/** Through-pass target of every own skater: ahead of its nearest teammate towards the goal. */
+	void UpdateThroughTargets();
 	void DriveSkater(ASkateCharacter* Skater, int32 Team, bool bChaser, const ASkateCharacter* Mate, FSkateSkaterBrain& Brain, uint8& Mode);
 	void SyncTeamSettings();
 
@@ -104,7 +106,7 @@ private:
 	void OnBrakeReleased(const FInputActionValue& Value);
 	void OnBoost(const FInputActionValue& Value);
 	void OnBoostReleased(const FInputActionValue& Value);
-	void OnTake(const FInputActionValue& Value);
+	void OnThrough(const FInputActionValue& Value);
 	void OnSlowPressed(const FInputActionValue& Value);
 	void OnSlowReleased(const FInputActionValue& Value);
 
@@ -131,7 +133,7 @@ private:
 	UInputAction* IA_Slow = nullptr;
 	UInputAction* IA_Brake = nullptr;
 	UInputAction* IA_Boost = nullptr;
-	UInputAction* IA_Take = nullptr;
+	UInputAction* IA_Through = nullptr;
 	UInputAction* IA_Push = nullptr;
 	UInputAction* IA_Kick = nullptr;
 	UInputAction* IA_Reset = nullptr;
@@ -166,6 +168,9 @@ private:
 	/** After a switch the stick still points where it did for the previous skater: it is ignored (the new skater
 	 *  keeps its AI behaviour, e.g. settling to receive the pass) until released, moved by a wide angle or a button. */
 	int32 TutorialStep = 0;
+	bool bThroughEdge = false;
+	/** Seconds since the player switched skaters by hand: the automatic rules stay out of the way for a while. */
+	float TimeSinceManualSwitch = 100.f;
 	bool bStickLatched = false;
 	FVector2D LatchStick = FVector2D::ZeroVector;
 	FVector2D LastRawStick = FVector2D::ZeroVector;

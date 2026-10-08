@@ -19,10 +19,10 @@ namespace SkateTuningPresets
 			M.GlideFriction = 80.f;
 			M.GlideDrag = 0.45f;
 			M.LateralGrip = 13.f;
-			M.MaxLateralAccel = 1800.f;
+			M.MaxLateralAccel = 2100.f;
 			M.CarveEfficiency = 0.94f;
-			M.TurnRateLowSpeed = 800.f;
-			M.TurnRateHighSpeed = 210.f;
+			M.TurnRateLowSpeed = 900.f;
+			M.TurnRateHighSpeed = 250.f;
 			M.GlideAlignRate = 120.f;
 			M.BrakeDecel = 1000.f;
 			M.ReverseBrakeDecel = 2200.f;

@@ -33,6 +33,8 @@ struct FSkateFrameInput
 	bool bPushReleased = false;
 	bool bKickPressed = false;
 	bool bKickReleased = false;
+	/** Through pass (Y / I). */
+	bool bThroughPressed = false;
 };
 
 UCLASS()

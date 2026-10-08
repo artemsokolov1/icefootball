@@ -30,7 +30,9 @@ public:
 	bool IsInteractionEnabled() const { return bInteractionEnabled; }
 
 	/** Button edges from the controller; consumed on the next tick. */
-	void QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease);
+	void QueueActions(bool bPushPress, bool bPushRelease, bool bKickPress, bool bKickRelease, bool bThroughPress = false);
+	/** Through pass target: ThroughLead cm ahead of the nearest teammate towards our goal, kept inside the rink. */
+	void SetThroughTarget(bool bValid, const FVector2D& Target) { bThroughTargetValid = bValid; ThroughTarget = Target; }
 
 	void ResetControl();
 	/** The ball was taken away: drop it now (the usual re-trap cooldown after a loss applies). */
@@ -80,6 +82,8 @@ private:
 	bool bInteractionEnabled = true;
 
 	FSkateBallActionInput PendingActions;
+	bool bThroughTargetValid = false;
+	FVector2D ThroughTarget = FVector2D::ZeroVector;
 	FSkateBallControlState ControlState;
 	FSkateContactReport Report;
 	FSkateBallImpulse LastImpulse;
