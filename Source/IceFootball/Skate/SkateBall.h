@@ -59,6 +59,8 @@ public:
 	/** The ball is a pass (push / throw-out) from a teammate (or the own keeper) of Receiver, played to Receiver (or to nobody in
 	 *  particular): meet it, first touch waits for it. */
 	bool IsPassFor(const UObject* Receiver, int32 ReceiverTeam) const;
+	/** Who played the last gameplay impulse (a skater's ball control component, a keeper, the arena). */
+	const UObject* GetLastImpulseSource() const { return LastImpulseSource.Get(); }
 	/** Whom the last pass was played to (null: nobody in particular). */
 	const UObject* GetPassReceiver() const { return LastImpulseKind == ESkateImpulseKind::Push ? LastImpulseReceiver.Get() : nullptr; }
 	/** The ball is a pass (push / throw-out) that Receiver did not make itself, from either team: received firmer. */

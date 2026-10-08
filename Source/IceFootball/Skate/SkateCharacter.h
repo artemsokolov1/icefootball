@@ -35,6 +35,8 @@ struct FSkateFrameInput
 	bool bKickReleased = false;
 	/** Through pass (Y / I). */
 	bool bThroughPressed = false;
+	/** Deke (B / L): a sideways cut with the ball, the ball protected for a moment. */
+	bool bDekePressed = false;
 };
 
 UCLASS()
@@ -75,11 +77,19 @@ public:
 	bool IsChecking() const { return CheckLeft > 0.f; }
 	/** An opponent's ball is close enough for the take button right now (HUD ring / prompt). */
 	bool CanTakeNow() const;
+	/** Deke (B): with the ball, a sideways cut (Side -1 / +1; 0 = the stick's side, else away from the nearest opponent).
+	 *  For Possession.DekeProtectTime the ball cannot be taken, and a take pressed into it stuns the taker. */
+	void StartDeke(int32 Side = 0);
+	bool IsDeking() const { return DekeProtectLeft > 0.f; }
+	float GetTimeSinceDeke() const { return TimeSinceDeke; }
+	/** Seconds since this skater pressed the take into a deke and lost its footing (HUD). */
+	float GetTimeSinceDeked() const { return TimeSinceDeked; }
 	float GetTimeSinceTake() const { return TimeSinceTake; }
 	/** Seconds since this skater delivered or took a check (HUD flash, cooldown). */
 	float GetTimeSinceHit() const { return TimeSinceHit; }
 
-	/** Team 0 = the player's (attacks +X), 1 = the opponents (AI). Slot 0 / 1 within the team: spawn point, chest patch. */
+	/** Team 0 = the player's, 1 = the opponents (AI); which goal each attacks is the arena's (ends change between periods).
+	 *  Slot 0 / 1 / 2 within the team: spawn point, chest patch. */
 	void SetTeam(int32 InTeam) { Team = InTeam; }
 	int32 GetTeam() const { return Team; }
 	void SetTeamSlot(int32 InSlot) { TeamSlot = InSlot; }
@@ -105,6 +115,7 @@ public:
 	USkateBallControlComponent* GetBallControl() const { return BallControl; }
 	USkaterPuppetComponent* GetPuppet() const { return Puppet; }
 	USkateFeedbackComponent* GetFeedback() const { return Feedback; }
+	USkateIceSynth* GetIceSynth() const { return IceSynth; }
 	const FSkateStickResult& GetLastStick() const { return LastStick; }
 	const FSkateFrameInput& GetLastFrameInput() const { return LastFrameInput; }
 	float GetLastBrake() const { return LastBrake; }
@@ -166,6 +177,9 @@ private:
 	float TimeSinceTake = 100.f;
 	/** Seconds left of a take press waiting for the ball to become takeable. */
 	float TakeBufferLeft = 0.f;
+	float DekeProtectLeft = 0.f;
+	float TimeSinceDeke = 100.f;
+	float TimeSinceDeked = 100.f;
 	float TimeSinceHit = 100.f;
 	float LastBrake = 0.f;
 	float LastBoost = 0.f;

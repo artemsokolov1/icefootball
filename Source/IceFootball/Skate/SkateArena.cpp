@@ -1,5 +1,8 @@
 #include "Skate/SkateArena.h"
 
+#include "Kismet/GameplayStatics.h"
+#include "Skate/SkateBallControlComponent.h"
+
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -72,8 +75,40 @@ FSkateAITuning ASkateArena::GetAITuning(const FSkateAITuning& Base) const
 		AI.ShotCharge = FMath::Min(AI.ShotCharge, 0.4f);
 		AI.AimError = FMath::Max(AI.AimError, 150.f);
 		AI.FaceOffReaction = FMath::Max(AI.FaceOffReaction, 0.5f);
+		AI.DekeRange = 0.f;
 	}
+	// The series: every match the player has won makes the bots a little quicker and more accurate.
+	AI.BoostAmount = FMath::Min(1.f, AI.BoostAmount + 0.08f * Wins0);
+	AI.AimError *= FMath::Max(0.5f, 1.f - 0.15f * Wins0);
 	return AI;
+}
+
+FSkateKeeperTuning ASkateArena::GetKeeperTuning(const FSkateKeeperTuning& Base, int32 KeeperTeam) const
+{
+	FSkateKeeperTuning KT = Base;
+	if (Difficulty == ESkateDifficulty::Easy && KeeperTeam != 0)
+	{
+		// The keeper the child shoots at: a beat slower, a shorter dive. The child's own keeper stays as it is.
+		KT.ReactionTime = FMath::Max(KT.ReactionTime, 0.28f);
+		KT.DiveReach = FMath::Min(KT.DiveReach, 120.f);
+	}
+	if (KeeperTeam != 0)
+	{
+		KT.ReactionTime = FMath::Max(0.1f, KT.ReactionTime - 0.03f * Wins0);
+	}
+	return KT;
+}
+
+ASkateGoalkeeper* ASkateArena::GetGoalkeeper(int32 GoalIndex) const
+{
+	for (ASkateGoalkeeper* Keeper : { Goalkeeper0.Get(), Goalkeeper1.Get() })
+	{
+		if (Keeper && Keeper->GetGoalIndex() == GoalIndex)
+		{
+			return Keeper;
+		}
+	}
+	return nullptr;
 }
 
 ASkateArena* ASkateArena::Find(const UWorld* World)
@@ -165,6 +200,11 @@ bool ASkateArena::SettleOnGround()
 void ASkateArena::BeginPlay()
 {
 	Super::BeginPlay();
+	// -Normal on the command line: start on Normal (bots-vs-bots log checks of the hits and dekes).
+	if (FParse::Param(FCommandLine::Get(), TEXT("Normal")))
+	{
+		Difficulty = ESkateDifficulty::Normal;
+	}
 	// On a map that already has ground at the origin (e.g. the default open-world template), the rink is
 	// put on top of it instead of intersecting it. On an empty map nothing is hit and the ice stays at z = 0.
 	float GroundTop = 0.f;
@@ -195,11 +235,11 @@ void ASkateArena::BeginPlay()
 
 FTransform ASkateArena::GetSpawnTransform(int32 Team, int32 Slot) const
 {
-	// Team 0 lines up at -X facing +X, team 1 mirrored. Capsule half height 92 + 2 cm clearance above the ice.
-	const float Sign = Team == 0 ? -1.f : 1.f;
+	// The team attacking +X lines up at -X facing +X, the other one mirrored. Capsule half height 92 + 2 cm clearance.
+	const float Sign = GetAttackGoal(Team) == 0 ? -1.f : 1.f;
 	const FVector2D Spot = Slot == 0 ? Layout.CentreSpawn : FVector2D(Layout.WingSpawn.X, Slot == 1 ? Layout.WingSpawn.Y : -Layout.WingSpawn.Y);
 	const FVector Local(Sign * Spot.X, Sign * Spot.Y, 94.f);
-	return FTransform(FRotator(0.f, Team == 0 ? 0.f : 180.f, 0.f), GetActorTransform().TransformPosition(Local));
+	return FTransform(FRotator(0.f, Sign < 0.f ? 0.f : 180.f, 0.f), GetActorTransform().TransformPosition(Local));
 }
 
 FSkateGoalFrame ASkateArena::GetGoalFrame(int32 GoalIndex) const
@@ -278,7 +318,7 @@ void ASkateArena::SpawnGoalkeepers()
 			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 		if (Slot)
 		{
-			// Goal 0 (+X) is attacked by team 0, so its keeper plays for team 1.
+			// Goal 0 (+X) is attacked by team 0 in the first period, so its keeper plays for team 1.
 			Slot->SetGoal(this, GoalIndex, GoalIndex == 0 ? 1 : 0);
 			Slot->FinishSpawning(Spawn);
 		}
@@ -309,7 +349,26 @@ bool ASkateArena::IsInsideRink(const FVector& WorldLocation, float Margin) const
 
 void ASkateArena::ResetScene()
 {
-	if (UWorld* World = GetWorld())
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		UGameplayStatics::SetGlobalTimeDilation(World, 1.f);
+	}
+	SlowMoRealEnd = -1.0;
+	if (bPendingEndsSwap)
+	{
+		// Change of ends: the keepers cross over with their teams (goal 0's keeper plays for team 1 only in odd periods).
+		bPendingEndsSwap = false;
+		bEndsSwapped = !bEndsSwapped;
+		for (ASkateGoalkeeper* Keeper : { Goalkeeper0.Get(), Goalkeeper1.Get() })
+		{
+			if (Keeper)
+			{
+				Keeper->SetGoal(this, GetAttackGoal(1 - Keeper->GetTeam()), Keeper->GetTeam());
+			}
+		}
+	}
+	if (World)
 	{
 		for (TActorIterator<ASkateCharacter> It(World); It; ++It)
 		{
@@ -334,12 +393,22 @@ void ASkateArena::ResetScene()
 
 void ASkateArena::RestartMatch()
 {
+	if (IsSeriesOver())
+	{
+		Wins0 = 0;
+		Wins1 = 0;
+	}
 	Score0 = 0;
 	Score1 = 0;
 	LastGoalTeam = INDEX_NONE;
+	LastScorerSlot = INDEX_NONE;
 	LastGoalTime = -1000.0;
+	LastPeriodEndTime = -1000.0;
 	Clock = Layout.MatchLength;
+	Period = 1;
+	bPendingEndsSwap = bEndsSwapped; // back to the first-period ends
 	bMatchOver = false;
+	GoalPauseLeft = -1.f;
 	ResetScene();
 }
 
@@ -713,13 +782,34 @@ void ASkateArena::Tick(float DeltaSeconds)
 		}
 		return;
 	}
+	// The goal moment: slow motion for GoalSlowMoTime real seconds, then the clock runs on at full speed.
+	if (SlowMoRealEnd >= 0.0 && GetWorld()->GetRealTimeSeconds() >= SlowMoRealEnd)
+	{
+		UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.f);
+		SlowMoRealEnd = -1.0;
+	}
 	if (!bMatchOver)
 	{
 		Clock = FMath::Max(0.f, Clock - DeltaSeconds);
 		if (Clock <= 0.f)
 		{
+			if (Period < GetPeriods())
+			{
+				// End of a period: a short break, then the teams change ends.
+				++Period;
+				Clock = Layout.MatchLength;
+				bPendingEndsSwap = true;
+				GoalPauseLeft = Layout.PeriodBreak;
+				LastPeriodEndTime = GetWorld()->GetTimeSeconds();
+				UE_LOG(LogIceSkate, Log, TEXT("END OF PERIOD %d: %d:%d, change of ends"), Period - 1, Score0, Score1);
+				return;
+			}
 			bMatchOver = true;
-			UE_LOG(LogIceSkate, Log, TEXT("FULL TIME %d:%d"), Score0, Score1);
+			if (Score0 != Score1)
+			{
+				(Score0 > Score1 ? Wins0 : Wins1)++;
+			}
+			UE_LOG(LogIceSkate, Log, TEXT("FULL TIME %d:%d, series %d-%d"), Score0, Score1, Wins0, Wins1);
 		}
 	}
 
@@ -727,12 +817,25 @@ void ASkateArena::Tick(float DeltaSeconds)
 	const int32 InGoal = BallInGoal();
 	if (InGoal != INDEX_NONE && !bBallInGoal && !bMatchOver)
 	{
-		// Goal 0 (+X) is team 0's target.
-		LastGoalTeam = InGoal == 0 ? 0 : 1;
+		LastGoalTeam = GetAttackGoal(0) == InGoal ? 0 : 1;
 		(LastGoalTeam == 0 ? Score0 : Score1)++;
 		LastGoalTime = GetWorld()->GetTimeSeconds();
 		GoalPauseLeft = Layout.GoalPause;
-		UE_LOG(LogIceSkate, Log, TEXT("GOAL team %d: %d:%d"), LastGoalTeam, Score0, Score1);
+		// The scorer: the skater that last played the ball, if it is on the scoring team.
+		LastScorerSlot = INDEX_NONE;
+		if (const USkateBallControlComponent* Source = Cast<USkateBallControlComponent>(Ball->GetLastImpulseSource()))
+		{
+			if (const ASkateCharacter* Scorer = Cast<ASkateCharacter>(Source->GetOwner()))
+			{
+				LastScorerSlot = Scorer->GetTeam() == LastGoalTeam ? Scorer->GetTeamSlot() : INDEX_NONE;
+			}
+		}
+		if (Layout.GoalSlowMo < 1.f && Layout.GoalSlowMoTime > 0.f)
+		{
+			UGameplayStatics::SetGlobalTimeDilation(GetWorld(), Layout.GoalSlowMo);
+			SlowMoRealEnd = GetWorld()->GetRealTimeSeconds() + Layout.GoalSlowMoTime;
+		}
+		UE_LOG(LogIceSkate, Log, TEXT("GOAL team %d (slot %d): %d:%d"), LastGoalTeam, LastScorerSlot, Score0, Score1);
 	}
 	bBallInGoal = InGoal != INDEX_NONE;
 

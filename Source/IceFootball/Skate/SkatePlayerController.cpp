@@ -12,6 +12,7 @@
 #include "InputModifiers.h"
 #include "IceFootball.h"
 #include "Skate/SkateArena.h"
+#include "Skate/SkateAudio.h"
 #include "Skate/SkateBall.h"
 #include "Skate/SkateBallControlComponent.h"
 #include "Skate/SkateCameraRig.h"
@@ -98,6 +99,10 @@ void ASkatePlayerController::BuildInputMappings()
 	Imc->MapKey(IA_Through, EKeys::Gamepad_FaceButton_Top);
 	Imc->MapKey(IA_Through, EKeys::I);
 
+	IA_Deke = MakeAction(TEXT("IA_Skate_Deke"), EInputActionValueType::Boolean);
+	Imc->MapKey(IA_Deke, EKeys::Gamepad_FaceButton_Right);
+	Imc->MapKey(IA_Deke, EKeys::L);
+
 	// ---- Ball ----
 	IA_Push = MakeAction(TEXT("IA_Skate_Push"), EInputActionValueType::Boolean);
 	Imc->MapKey(IA_Push, EKeys::Gamepad_FaceButton_Bottom);
@@ -174,6 +179,7 @@ void ASkatePlayerController::SetupInputComponent()
 	Eic->BindAction(IA_Boost, ETriggerEvent::Triggered, this, &ASkatePlayerController::OnBoost);
 	Eic->BindAction(IA_Boost, ETriggerEvent::Completed, this, &ASkatePlayerController::OnBoostReleased);
 	Eic->BindAction(IA_Through, ETriggerEvent::Started, this, &ASkatePlayerController::OnThrough);
+	Eic->BindAction(IA_Deke, ETriggerEvent::Started, this, &ASkatePlayerController::OnDeke);
 
 	Eic->BindAction(IA_Push, ETriggerEvent::Started, this, &ASkatePlayerController::OnPushPressed);
 	Eic->BindAction(IA_Push, ETriggerEvent::Completed, this, &ASkatePlayerController::OnPushReleased);
@@ -492,7 +498,7 @@ void ASkatePlayerController::UpdateThroughTargets()
 	{
 		return;
 	}
-	const FSkateGoalFrame Goal = Arena->GetGoalFrame(0); // team 0 attacks +X
+	const FSkateGoalFrame Goal = Arena->GetGoalFrame(Arena->GetAttackGoal(0));
 	const FVector2D GoalCentre(Goal.Center.X, Goal.Center.Y);
 	const FVector2D Half = Arena->GetLayout().RinkSize * 0.5f;
 	const float Lead = Team.Num() > 0 && Team[0].IsValid() ? Team[0]->GetActiveTuning().BallControl.ThroughLead : 700.f;
@@ -514,8 +520,13 @@ void ASkatePlayerController::UpdateThroughTargets()
 		// A standing teammate gets the ball closer (it cannot run 7 m in time); a running one gets the full lead.
 		const float Pace = FMath::Clamp(static_cast<float>(Mate->GetVelocity().Size2D()) / FMath::Max(Mate->GetActiveTuning().Movement.MaxSpeed, 1.f), 0.f, 1.f);
 		FVector2D Target = MatePos + Dir * Lead * (0.4f + 0.6f * Pace);
-		Target.X = FMath::Clamp(Target.X, -Half.X + 200.f, Goal.Center.X - 150.f); // never behind the goal line
+		Target.X = FMath::Clamp(Target.X, -Half.X + 200.f, Half.X - 200.f);
 		Target.Y = FMath::Clamp(Target.Y, -Half.Y + 200.f, Half.Y - 200.f);
+		const float Along = Goal.Along(FSkateVec2(static_cast<float>(Target.X), static_cast<float>(Target.Y)));
+		if (Along < 150.f) // never behind the goal line
+		{
+			Target += FVector2D(Goal.Normal.X, Goal.Normal.Y) * (150.f - Along);
+		}
 		Member->GetBallControl()->SetThroughTarget(true, Target);
 	}
 }
@@ -537,7 +548,8 @@ void ASkatePlayerController::DriveTeam(const TArray<TWeakObjectPtr<ASkateCharact
 	const ASkateArena* Arena = CachedArena.Get();
 	const ASkateBall* Ball = Arena->GetBall();
 	const FVector BallLoc = Ball->GetActorLocation();
-	const FVector OwnGoal(Arena->GetGoalFrame(SkaterTeam == 0 ? 1 : 0).Center.X, Arena->GetGoalFrame(SkaterTeam == 0 ? 1 : 0).Center.Y, BallLoc.Z);
+	const FSkateGoalFrame OwnFrame = Arena->GetGoalFrame(Arena->GetAttackGoal(1 - SkaterTeam));
+	const FVector OwnGoal(OwnFrame.Center.X, OwnFrame.Center.Y, BallLoc.Z);
 	const USkateBallControlComponent* HolderComp = Cast<USkateBallControlComponent>(Ball->GetHolder());
 	const ASkateCharacter* Carrier = HolderComp ? Cast<ASkateCharacter>(HolderComp->GetOwner()) : nullptr;
 	const bool bOurBall = Carrier && Carrier->GetTeam() == SkaterTeam;
@@ -621,9 +633,9 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 	View.bBallIsPassToMe = Ball->IsPassFor(Skater->GetBallControl(), SkaterTeam);
 	View.BallDamping = Ball->GetPhysicsTuning().LinearDamping;
 	View.BallRollingResistance = Ball->GetPhysicsTuning().RollingResistance;
-	// Team 0 attacks goal 0 (+X), team 1 attacks goal 1 (-X).
-	const FSkateGoalFrame Attack = Arena->GetGoalFrame(SkaterTeam == 0 ? 0 : 1);
-	const FSkateGoalFrame Own = Arena->GetGoalFrame(SkaterTeam == 0 ? 1 : 0);
+	// The ends change between periods: the arena knows which goal each team attacks.
+	const FSkateGoalFrame Attack = Arena->GetGoalFrame(Arena->GetAttackGoal(SkaterTeam));
+	const FSkateGoalFrame Own = Arena->GetGoalFrame(Arena->GetAttackGoal(1 - SkaterTeam));
 	View.AttackGoal = Attack.Center;
 	View.OwnGoal = Own.Center;
 	View.GoalHalfWidth = Attack.HalfWidth;
@@ -686,6 +698,10 @@ void ASkatePlayerController::DriveSkater(ASkateCharacter* Skater, int32 SkaterTe
 	if (Decision.bCheck && bActions)
 	{
 		Skater->StartTake();
+	}
+	if (Decision.DekeSide != 0 && bActions)
+	{
+		Skater->StartDeke(Decision.DekeSide);
 	}
 	if (Mode != static_cast<uint8>(Decision.Mode))
 	{
@@ -755,6 +771,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		FrameInput.bKickPressed = bKickPressEdge;
 		FrameInput.bKickReleased = bKickReleaseEdge;
 		FrameInput.bThroughPressed = bThroughEdge;
+		FrameInput.bDekePressed = bDekeEdge;
 		if (CachedArena.IsValid() && CachedArena->IsFaceOff())
 		{
 			// Everybody waits for the drop: no stick, no buttons, skates held.
@@ -792,7 +809,29 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 	bKickPressEdge = false;
 	bKickReleaseEdge = false;
 	bThroughEdge = false;
+	bDekeEdge = false;
 	TimeSinceManualSwitch += DeltaTime;
+	// The goal moment: horn and a long rumble; the camera moves in during the pause.
+	if (const ASkateArena* Arena = CachedArena.Get())
+	{
+		if (Arena->GetGoals() != SeenGoals)
+		{
+			const bool bScored = Arena->GetGoals() > SeenGoals; // fewer = a new match
+			SeenGoals = Arena->GetGoals();
+			if (bScored && Skater && Skater->GetIceSynth())
+			{
+				Skater->GetIceSynth()->TriggerHorn();
+			}
+			if (bScored)
+			{
+				PlayDynamicForceFeedback(Arena->GetLastGoalTeam() == 0 ? 0.9f : 0.5f, 0.6f, true, true, true, true);
+			}
+		}
+		if (CameraRig)
+		{
+			CameraRig->SetCelebration(Arena->IsGoalPause() && Arena->GetLastGoalTime() > Arena->GetLastPeriodEndTime());
+		}
+	}
 	if (TutorialStep == 2 && Skater && Skater->GetTimeSinceTake() < 0.05f)
 	{
 		TutorialStep = 3;
@@ -839,6 +878,12 @@ void ASkatePlayerController::OnBrakeReleased(const FInputActionValue& Value)
 void ASkatePlayerController::OnThrough(const FInputActionValue& Value)
 {
 	bThroughEdge = true;
+	bStickLatched = false;
+}
+
+void ASkatePlayerController::OnDeke(const FInputActionValue& Value)
+{
+	bDekeEdge = true;
 	bStickLatched = false;
 }
 

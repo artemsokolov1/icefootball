@@ -96,6 +96,8 @@ struct FSkateSkaterBrain
 {
 	/** Seconds left on the button being held (shot or pass); < 0 = not charging. */
 	float ChargeLeft = -1.f;
+	/** No second deke before this runs out (s). */
+	float DekeRest = 0.f;
 	bool bChargingShot = false;
 	FSkateVec2 Aim;
 	/** Deterministic random stream for the shot error (seed it per skater for variety). */
@@ -110,6 +112,8 @@ struct FSkateSkaterDecision
 	FSkateBallActionInput Actions;
 	/** Press the check button this frame (pressing the carrier). */
 	bool bCheck = false;
+	/** Deke this frame: -1 left, +1 right (carrying the ball with an opponent right ahead). */
+	int DekeSide = 0;
 	ESkateSkaterMode Mode = ESkateSkaterMode::Wait;
 };
 
@@ -142,6 +146,9 @@ public:
 	static constexpr float AvoidDistance = 350.f;
 	static constexpr float AvoidConeDeg = 50.f;
 	static constexpr float AvoidTurnDeg = 65.f;
+	/** The carrier dekes (Tuning.DekeRange) when the opponent is within this angle (dot) ahead; rests DekeRest s after. */
+	static constexpr float DekeFacingDot = 0.5f;
+	static constexpr float DekeRest = 1.5f;
 	/** A pass led to where the receiver is going (its path comes within ReceiveLedRadius cm of the receiver's own
 	 *  course) is received by holding that course; otherwise the receiver goes to the earliest point it can reach
 	 *  (at ReceiveMeetSpeed cm/s, trapping within ReceiveReach cm) before the ball does, looking up to ReceiveHorizon (s)

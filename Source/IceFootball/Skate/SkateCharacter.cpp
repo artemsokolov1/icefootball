@@ -6,6 +6,7 @@
 #include "Skate/SkateArena.h"
 #include "Skate/SkateBall.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "EngineUtils.h"
 #include "DrawDebugHelpers.h"
 #include "Skate/Core/SkateTuningPresets.h"
 #include "Skate/SkateAudio.h"
@@ -187,8 +188,50 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 		{
 			StartTake();
 		}
+		if (Input.bDekePressed)
+		{
+			StartDeke(0);
+		}
 		BallControl->QueueActions(Input.bPushPressed, Input.bPushReleased, Input.bKickPressed && bBallPlayable, Input.bKickReleased, Input.bThroughPressed);
 	}
+}
+
+void ASkateCharacter::StartDeke(int32 Side)
+{
+	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
+	if (!BallControl || !BallControl->HasBall() || IsStunned() || TimeSinceDeke < PT.DekeCooldown || !SkateMovement)
+	{
+		return;
+	}
+	const FSkateVec2 Heading = SkateMovement->GetSkateState().Heading;
+	const FSkateVec2 Right = Heading.Right();
+	if (Side == 0)
+	{
+		// The stick's side when it is pushed sideways, otherwise away from the nearest opponent, otherwise right.
+		const float StickLat = LastStick.Magnitude > 0.3f ? LastStick.Direction.Dot(Right) : 0.f;
+		if (FMath::Abs(StickLat) > 0.35f)
+		{
+			Side = StickLat > 0.f ? 1 : -1;
+		}
+		else
+		{
+			float Nearest = TNumericLimits<float>::Max();
+			Side = 1;
+			for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
+			{
+				const FVector Delta = It->GetActorLocation() - GetActorLocation();
+				if (It->GetTeam() != Team && Delta.Size2D() < Nearest)
+				{
+					Nearest = static_cast<float>(Delta.Size2D());
+					Side = static_cast<float>(Delta.X) * Right.X + static_cast<float>(Delta.Y) * Right.Y > 0.f ? -1 : 1;
+				}
+			}
+		}
+	}
+	SkateMovement->QueueDeke(Side);
+	DekeProtectLeft = PT.DekeProtectTime;
+	TimeSinceDeke = 0.f;
+	UE_LOG(LogIceSkate, Verbose, TEXT("DEKE: team %d slot %d cuts %s"), Team, TeamSlot, Side > 0 ? TEXT("right") : TEXT("left"));
 }
 
 bool ASkateCharacter::CanTakeNow() const
@@ -197,7 +240,7 @@ bool ASkateCharacter::CanTakeNow() const
 	const USkateBallControlComponent* Holder = Ball ? Cast<USkateBallControlComponent>(Ball->GetHolder()) : nullptr;
 	const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
 	const FSkatePossessionTuning& PT = GetActiveTuning().BallControl.Possession;
-	if (!Carrier || Carrier->GetTeam() == Team || TimeSinceTake < PT.TakeCooldown || IsStunned()
+	if (!Carrier || Carrier->GetTeam() == Team || TimeSinceTake < PT.TakeCooldown || IsStunned() || Carrier->IsDeking()
 		|| Holder->GetControlState().Possession.TimeHeld < PT.StealProtectTime
 		|| FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) > PT.TakeRange)
 	{
@@ -214,6 +257,22 @@ void ASkateCharacter::StartTake()
 	{
 		return;
 	}
+	const ASkateBall* Ball = BallControl ? BallControl->GetBall() : nullptr;
+	const USkateBallControlComponent* Holder = Ball ? Cast<USkateBallControlComponent>(Ball->GetHolder()) : nullptr;
+	const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
+	const bool bOpponentNear = Carrier && Carrier->GetTeam() != Team && FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) < PT.TakeRange * 1.5f;
+	// The take pressed into a deke: the taker is beaten - a moment without control, the carrier keeps the ball.
+	if (bOpponentNear && Carrier->IsDeking())
+	{
+		const FVector Vel = GetVelocity();
+		ApplyHit(FVector2D(Vel.X, Vel.Y) * 0.5f, PT.DekeWhiffStun);
+		TimeSinceHit = 100.f; // not a check
+		TimeSinceDeked = 0.f;
+		TimeSinceTake = 0.f;
+		UE_LOG(LogIceSkate, Verbose, TEXT("DEKED: team %d slot %d pressed the take into the deke of team %d slot %d"), Team, TeamSlot,
+			Carrier->GetTeam(), Carrier->GetTeamSlot());
+		return;
+	}
 	if (BallControl && BallControl->TryTake(PT.TakeRange, PT.StealProtectTime, PT.TakeBallSpeed))
 	{
 		TimeSinceTake = 0.f;
@@ -221,10 +280,7 @@ void ASkateCharacter::StartTake()
 		return;
 	}
 	// An opponent's ball nearby that cannot be taken yet (just received, a step too far): the press waits for it.
-	const ASkateBall* Ball = BallControl ? BallControl->GetBall() : nullptr;
-	const USkateBallControlComponent* Holder = Ball ? Cast<USkateBallControlComponent>(Ball->GetHolder()) : nullptr;
-	const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
-	if (Carrier && Carrier->GetTeam() != Team && FVector::Dist2D(Ball->GetActorLocation(), GetActorLocation()) < PT.TakeRange * 1.5f)
+	if (bOpponentNear)
 	{
 		TakeBufferLeft = PT.TakeBufferTime;
 		return;
@@ -352,6 +408,9 @@ void ASkateCharacter::Tick(float DeltaSeconds)
 	TimeSinceCheck += DeltaSeconds;
 	TimeSinceTake += DeltaSeconds;
 	TimeSinceHit += DeltaSeconds;
+	TimeSinceDeke += DeltaSeconds;
+	TimeSinceDeked += DeltaSeconds;
+	DekeProtectLeft -= DeltaSeconds;
 	if (TakeBufferLeft > 0.f)
 	{
 		TakeBufferLeft -= DeltaSeconds;

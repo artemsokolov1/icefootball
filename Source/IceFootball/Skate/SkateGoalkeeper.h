@@ -31,6 +31,7 @@ public:
 	/** Which goal (0 = +X, 1 = -X) this keeper guards and which team it plays for (throw-outs go to that team). */
 	void SetGoal(ASkateArena* InArena, int32 InGoalIndex, int32 InTeam);
 	int32 GetTeam() const { return Team; }
+	int32 GetGoalIndex() const { return GoalIndex; }
 	/** Back to the middle of the goal, ball released (scene reset). */
 	void ResetKeeper();
 

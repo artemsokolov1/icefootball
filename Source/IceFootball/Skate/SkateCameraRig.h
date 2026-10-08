@@ -38,6 +38,8 @@ public:
 	void ToggleStaticMode() { SetStaticMode(!bStaticMode); }
 	void ToggleChaseMode();
 	bool IsChaseMode() const { return bChaseMode; }
+	/** The goal pause: the side camera moves in on the ball in the net. */
+	void SetCelebration(bool bIn) { bCelebration = bIn; }
 
 	/** Yaw (deg) the stick is projected with: the fixed side yaw, or the chase camera's current yaw. */
 	float GetControlYaw() const { return bChaseMode && !bStaticMode ? ChaseYaw : Tuning.Yaw; }
@@ -62,6 +64,7 @@ private:
 	float Zoom = 0.f; // current smoothed distance; 0 = not initialised
 	bool bStaticMode = false;
 	bool bChaseMode = false;
+	bool bCelebration = false;
 	float ChaseYaw = 0.f;
 	FVector StaticFocus = FVector::ZeroVector;
 	FVector2D LookAhead = FVector2D::ZeroVector;

@@ -29,6 +29,8 @@ public:
 
 	/** Input for the next movement update (already shaped and camera-relative). */
 	void SetSkateInput(const FSkateMoveInput& InInput) { PendingInput = InInput; }
+	/** Deke on the next movement update: -1 left, +1 right. */
+	void QueueDeke(int32 Side) { PendingDeke = Side; }
 	const FSkateMoveInput& GetSkateInput() const { return PendingInput; }
 
 	void SetMovementTuning(const FSkateMovementTuning& InTuning) { MoveTuning = InTuning; }
@@ -55,6 +57,7 @@ public:
 
 private:
 	FSkateMoveInput PendingInput;
+	int32 PendingDeke = 0;
 	FSkateMovementTuning MoveTuning;
 	FSkateMoveState SkateState;
 	bool bBrakeFaultThisFrame = false;

@@ -7,6 +7,7 @@
 //   A            pass to the partner        J
 //   X (hold)     charge kick, release=kick  K
 //   Y            through pass               I
+//   B            deke (with the ball)       L
 //   Menu/Start   new match (after FULL TIME) R
 //   RB           ball to feet (test aid)    T
 //   View/Back    debug HUD on/off           F1
@@ -111,6 +112,7 @@ private:
 	void OnBoost(const FInputActionValue& Value);
 	void OnBoostReleased(const FInputActionValue& Value);
 	void OnThrough(const FInputActionValue& Value);
+	void OnDeke(const FInputActionValue& Value);
 	void OnSlowPressed(const FInputActionValue& Value);
 	void OnSlowReleased(const FInputActionValue& Value);
 
@@ -139,6 +141,7 @@ private:
 	UInputAction* IA_Brake = nullptr;
 	UInputAction* IA_Boost = nullptr;
 	UInputAction* IA_Through = nullptr;
+	UInputAction* IA_Deke = nullptr;
 	UInputAction* IA_Push = nullptr;
 	UInputAction* IA_Kick = nullptr;
 	UInputAction* IA_Reset = nullptr;
@@ -176,6 +179,9 @@ private:
 	 *  keeps its AI behaviour, e.g. settling to receive the pass) until released, moved by a wide angle or a button. */
 	int32 TutorialStep = 0;
 	bool bThroughEdge = false;
+	bool bDekeEdge = false;
+	/** Goals seen so far (the goal horn and rumble fire on a change). */
+	int32 SeenGoals = 0;
 	/** Seconds since the player switched skaters by hand: the automatic rules stay out of the way for a while. */
 	float TimeSinceManualSwitch = 100.f;
 	bool bStickLatched = false;

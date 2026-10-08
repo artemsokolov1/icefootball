@@ -23,6 +23,8 @@ public:
 
 	/** Strength 0..1, Pitch ~0.5..2. */
 	void TriggerImpact(float Strength, float Pitch);
+	/** The goal horn: a low two-note chord, about a second. */
+	void TriggerHorn();
 
 protected:
 	virtual bool Init(int32& SampleRate) override;
@@ -34,6 +36,7 @@ private:
 	std::atomic<int32> ImpactSerial{ 0 };
 	std::atomic<float> ImpactStrength{ 0.f };
 	std::atomic<float> ImpactPitch{ 1.f };
+	std::atomic<int32> HornSerial{ 0 };
 
 	// Audio thread state
 	float Rate = 48000.f;
@@ -50,4 +53,9 @@ private:
 	float ClickEnv = 0.f;
 	float ImpactPhase = 0.f;
 	float ImpactFreq = 120.f;
+	int32 SeenHorn = 0;
+	float HornLeft = 0.f;
+	float HornEnv = 0.f;
+	float HornPhaseA = 0.f;
+	float HornPhaseB = 0.f;
 };

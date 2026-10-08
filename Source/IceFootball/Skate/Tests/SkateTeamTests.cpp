@@ -45,6 +45,12 @@ namespace SkateTeamTestsDetail
 		float TakeCooldown = 0.f;
 		/** Scripted skaters: press the take button this frame. */
 		bool bTakePressed = false;
+		/** Scripted skaters: deke this frame (DekeSide -1 / +1); DekeProtect = seconds the ball stays untakeable. */
+		bool bDekePressed = false;
+		int DekeSide = 1;
+		float DekeProtect = 0.f;
+		/** Times this skater pressed the take into a deke and lost its footing. */
+		int Deked = 0;
 		int Hits = 0;
 		int Impulses = 0;
 		int BodyBlocks = 0;
@@ -138,7 +144,7 @@ namespace SkateTeamTestsDetail
 			Q.bBallHeldByOther = Holder != NoHolder && Holder != Index;
 			// Same rule as USkateBallControlComponent: an opponent's ball may be taken after the protection time,
 			// and only when it strayed from the carrier's feet or this skater pokes at it.
-			Q.bStealAllowed = Q.bBallHeldByOther && Holder != KeeperHolder && Team[Holder] != Team[Index]
+			Q.bStealAllowed = Q.bBallHeldByOther && Holder != KeeperHolder && Team[Holder] != Team[Index] && S[Holder].DekeProtect <= 0.f
 				&& S[Holder].Control.Possession.TimeHeld >= T.BallControl.Possession.StealProtectTime
 				&& S[Holder].Control.Possession.CarryError > T.BallControl.Possession.StealLooseDistance;
 			Q.BallTimeSinceImpulse = BallSinceImpulse;
@@ -196,8 +202,16 @@ namespace SkateTeamTestsDetail
 				S[Index].Stun = SkateMath::Max(0.f, S[Index].Stun - Dt);
 				S[Index].CheckLeft -= Dt;
 				S[Index].TakeCooldown -= Dt;
+				S[Index].DekeProtect -= Dt;
 				bool bButton = S[Index].bTakePressed;
 				S[Index].bTakePressed = false;
+				if (S[Index].bDekePressed && Holder == Index && S[Index].Stun <= 0.f)
+				{
+					// Same as ASkateCharacter::StartDeke: the cut goes to the movement model, the ball is protected.
+					Used[Index].DekeSide = S[Index].DekeSide;
+					S[Index].DekeProtect = T.BallControl.Possession.DekeProtectTime;
+				}
+				S[Index].bDekePressed = false;
 				if (S[Index].bAI)
 				{
 					const FSkateSkaterDecision Dec = FSkateSkaterAI::Think(AIView(Index), T.AI, S[Index].Brain, Dt);
@@ -213,7 +227,16 @@ namespace SkateTeamTestsDetail
 					const FSkatePossessionTuning& PT = T.BallControl.Possession;
 					const bool bOpponentBall = Holder != NoHolder && Holder != KeeperHolder && Team[Holder] != Team[Index];
 					const bool bFromBehind = bOpponentBall && S[Holder].State.Heading.Dot((S[Index].Pos - S[Holder].Pos).GetSafeNormal()) < PT.TakeBehindDot;
-					if (bOpponentBall && !bFromBehind && (BallPos.XY() - S[Index].Pos).Size() <= PT.TakeRange && S[Holder].Control.Possession.TimeHeld >= PT.StealProtectTime)
+					const float BallDist = (BallPos.XY() - S[Index].Pos).Size();
+					if (bOpponentBall && S[Holder].DekeProtect > 0.f && BallDist <= PT.TakeRange * 1.5f)
+					{
+						// The take pressed into a deke (ASkateCharacter::StartTake): the taker is beaten.
+						S[Index].Stun = PT.DekeWhiffStun;
+						S[Index].State.Velocity *= 0.5f;
+						S[Index].TakeCooldown = PT.TakeCooldown;
+						++S[Index].Deked;
+					}
+					else if (bOpponentBall && !bFromBehind && BallDist <= PT.TakeRange && S[Holder].Control.Possession.TimeHeld >= PT.StealProtectTime)
 					{
 						FSkateBallControl::ReleasePossession(S[Holder].Control, ESkatePossessionLoss::Taken);
 						Holder = NoHolder;
@@ -949,6 +972,40 @@ namespace SkateTeamTestsDetail
 		Out.push_back(R);
 	}
 
+	void TestDekeBeatsTheTake(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Match.DekeBeatsTheTake");
+		const float Dt = 1.f / 60.f;
+		FTeamSim Sim;
+		Sim.Team[1] = 1;
+		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));      // carrier faces +X
+		Sim.Place(1, FSkateVec2(150.f, 90.f), FSkateVec2(-1.f, 0.f));  // opponent ahead-right, the ball in its take range
+		Sim.GiveBall(0, Dt);
+		Sim.Run(0.6f, Dt, [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1].Brake = 1.f; }); // protection over
+		const FSkateVec2 Start = Sim.S[0].Pos;
+		const float T0 = Sim.Time;
+		float MaxSide = 0.f;
+		bool bLost = false;
+		Sim.Run(1.2f, Dt, [&](float Time, FSkateMoveInput* In, FSkateBallActionInput*)
+		{
+			const float T = Time - T0;
+			In[0] = Stick(FSkateVec2(1.f, 0.f), 0.4f);
+			In[1].Brake = 1.f;
+			if (T < 0.5f * Dt)
+			{
+				Sim.S[0].DekeSide = -1; // away from the opponent
+				Sim.S[0].bDekePressed = true;
+			}
+			Sim.S[1].bTakePressed = T >= 0.05f && T < 0.15f; // the take, pressed a moment into the deke
+			MaxSide = SkateMath::Max(MaxSide, -(Sim.S[0].Pos.Y - Start.Y));
+			bLost |= !Sim.S[0].Control.Possession.bPossessed;
+		});
+		R.bPassed = !bLost && Sim.S[1].Deked >= 1 && Sim.S[1].Stun <= 0.f && MaxSide > 60.f && MaxSide < 220.f && Sim.S[0].Control.Possession.bPossessed;
+		R.Details = Fmt("deke left with the take pressed into it: carrier keeps the ball %d (lost at some point %d), cut %.0f cm sideways, taker beaten %d times and back on its feet %d",
+			Sim.S[0].Control.Possession.bPossessed ? 1 : 0, bLost ? 1 : 0, MaxSide, Sim.S[1].Deked, Sim.S[1].Stun <= 0.f ? 1 : 0);
+		Out.push_back(R);
+	}
+
 	void TestNoTakeFromBehind(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R("Match.NoTakeFromBehind");
@@ -1365,6 +1422,46 @@ namespace SkateTeamTestsDetail
 		Out.push_back(R);
 	}
 
+	void TestKeeperReboundInFront(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Keeper.ReboundDropsInFront");
+		const float Dt = 1.f / 60.f;
+		bool bOk = true;
+		std::string Info;
+		for (float Aim : { 0.f, 60.f })
+		{
+			FTeamSim Sim = MakeKeeperSim();
+			const FSkateVec2 From = Sim.Goal.ToWorld(1200.f, -100.f);
+			Sim.BallPos = FSkateVec3(From, Sim.T.BallPhysics.Radius);
+			Sim.Run(1.5f, Dt);
+			Sim.BallVel = FSkateVec3((Sim.Goal.ToWorld(0.f, Aim) - From).GetSafeNormal() * 2200.f, 0.f);
+			Sim.Impulse(ESkateImpulseKind::Kick, 0);
+			ESkateKeeperAction First = ESkateKeeperAction::None;
+			float SpeedAtFirst = 0.f;
+			float FirstAt = 0.f;
+			const float Start = Sim.Time;
+			Sim.Run(2.f, Dt, [&](float Time, FSkateMoveInput*, FSkateBallActionInput*)
+			{
+				if (First == ESkateKeeperAction::None && Sim.K.LastAction != ESkateKeeperAction::None && Sim.K.TimeSinceAction < Dt)
+				{
+					First = Sim.K.LastAction;
+					SpeedAtFirst = Sim.BallVel.Size();
+					FirstAt = Time - Start;
+				}
+			});
+			const float Along = Sim.Goal.Along(Sim.BallPos.XY());
+			const float Lateral = Sim.Goal.Lateral(Sim.BallPos.XY());
+			const bool bCase = First == ESkateKeeperAction::Parry && Sim.K.LastAction == ESkateKeeperAction::Parry && Sim.Result == EShotResult::Saved
+				&& Along > 100.f && Along < 900.f && SkateMath::Abs(Lateral) < 450.f;
+			bOk &= bCase;
+			Info += Fmt("2200 cm/s at %+.0f: %s at %.2f s (ball %.0f cm/s), then %s, 2 s later the ball is %.0f cm out, %+.0f cm across, %s%s; ", Aim,
+				SkateKeeperActionName(First), FirstAt, SpeedAtFirst, SkateKeeperActionName(Sim.K.LastAction), Along, Lateral, ShotResultName(Sim.Result), bCase ? "" : " FAIL");
+		}
+		R.bPassed = bOk;
+		R.Details = Info;
+		Out.push_back(R);
+	}
+
 	void TestKeeperCatchAndThrow(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R("Keeper.CatchAndThrowOut");
@@ -1480,6 +1577,7 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestNoStealWithoutPoke(Out);
 	TestPokeTakesTheBall(Out);
 	TestNoTakeFromBehind(Out);
+	TestDekeBeatsTheTake(Out);
 	TestThroughPass(Out);
 	TestOpponentSteals(Out);
 	TestOpponentAttacksAndShoots(Out);
@@ -1489,6 +1587,7 @@ void RunSkateTeamTests(std::vector<FSkateTestResult>& Out)
 	TestKeeperCanBeBeaten(Out);
 	TestKeeperCloseRange(Out);
 	TestKeeperParryGoesOut(Out);
+	TestKeeperReboundInFront(Out);
 	TestKeeperCatchAndThrow(Out);
 	TestKeeperSmothersDribble(Out);
 	TestKeeperFps(Out);

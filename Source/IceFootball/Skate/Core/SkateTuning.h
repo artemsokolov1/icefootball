@@ -83,6 +83,21 @@ struct FSkateMovementTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.05"))
 	float BoostTimeConstant = 0.36f;
 
+	/** Sprint stamina: seconds of full boost in the tank, seconds of rest to refill it. An empty tank gives no boost
+	 *  until a third of it is back (no flicker at the edge). The same rule applies to the bots. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.5"))
+	float StaminaTime = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.5"))
+	float StaminaRecoverTime = 6.f;
+
+	/** Deke (B with the ball): a sideways cut at this speed (cm/s) for this long (s) - about a metre of ice. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Deke", meta = (ClampMin = "0"))
+	float DekeSpeed = 480.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Deke", meta = (ClampMin = "0.05"))
+	float DekeTime = 0.22f;
+
 	/** Thrust is only produced when the skates point roughly where the stick asks:
 	 *  thrust scale ramps from 0 at this dot(heading, stick) to 1 at dot = 1. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "-1", ClampMax = "0.95"))
@@ -265,6 +280,17 @@ struct FSkatePossessionTuning
 	/** Speed (cm/s) the knocked-loose ball gets towards the taker's feet. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
 	float TakeBallSpeed = 500.f;
+
+	/** Deke (B): for DekeProtectTime (s) after the cut the ball cannot be taken, and a take pressed into it leaves the
+	 *  taker without control for DekeWhiffStun (s). The carrier can deke again after DekeCooldown (s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float DekeProtectTime = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float DekeWhiffStun = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Possession", meta = (ClampMin = "0"))
+	float DekeCooldown = 1.2f;
 
 	/** Without the button a carried ball is only taken when the carrier let it stray farther than this (cm)
 	 *  from the carry point (dribbling error, board, shove): it counts as loose. */
@@ -631,6 +657,10 @@ struct FSkateAITuning
 	/** The AI stays put this long (s) after the face-off drop: the player's reaction time, not a free ball for the bot. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0"))
 	float FaceOffReaction = 0.35f;
+
+	/** Carrying the ball with an opponent ahead closer than this (cm): the bot dekes away from it. 0 = never. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI", meta = (ClampMin = "0"))
+	float DekeRange = 260.f;
 };
 
 /** NHL-style side camera (ASkateCameraRig): high on the stands, looks across the rink, slides along it. */
@@ -870,9 +900,10 @@ struct FSkateKeeperTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float DiveLowHeight = 95.f;
 
-	/** Balls slower than this (cm/s) close to the body are caught and held instead of parried. */
+	/** Balls slower than this (cm/s) close to the body are caught and held instead of parried. Real shots (a tap of X is
+	 *  1800) are parried: the rebound drops in front of the goal, where a second shot is the way to score. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
-	float CatchMaxSpeed = 1400.f;
+	float CatchMaxSpeed = 1000.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float CatchHalfWidth = 45.f;
@@ -880,12 +911,13 @@ struct FSkateKeeperTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float CatchMaxHeight = 170.f;
 
-	/** Parry: fraction of the shot speed sent back out, sideways speed (cm/s) away from the goal, lift (cm/s). */
+	/** Parry: fraction of the shot speed sent back out, sideways speed (cm/s) away from the goal, lift (cm/s).
+	 *  Low values = the rebound stays in front of the goal (a scramble, a tap-in), high = cleared to the corner. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0", ClampMax = "1"))
-	float ParryRestitution = 0.35f;
+	float ParryRestitution = 0.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
-	float ParryWideSpeed = 450.f;
+	float ParryWideSpeed = 220.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float ParryLift = 220.f;

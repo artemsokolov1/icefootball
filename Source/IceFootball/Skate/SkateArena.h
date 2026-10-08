@@ -83,12 +83,31 @@ struct FSkateArenaLayout
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layout")
 	float BlueLineX = 800.f;
 
-	/** Match length (s) and the pause after a goal before the face-off. */
+	/** Length of one period (s), the number of periods (the teams change ends between them), the break between
+	 *  periods (s), the pause after a goal before the face-off (s). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
-	float MatchLength = 180.f;
+	float MatchLength = 90.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ClampMin = 1, ClampMax = 9))
+	int32 Periods = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
+	float PeriodBreak = 3.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
 	float GoalPause = 2.5f;
+
+	/** A series is won with this many match wins (a draw counts for nobody); the bots get a little better with each of
+	 *  the player's wins. 0 = no series, every match stands alone. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ClampMin = 0, ClampMax = 9))
+	int32 SeriesWins = 3;
+
+	/** The goal moment: the game runs at this fraction of real time for GoalSlowMoTime real seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float GoalSlowMo = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ClampMin = "0"))
+	float GoalSlowMoTime = 0.7f;
 
 	/** Face-off: everyone stands still this long (s) with the ball on the spot, then it is dropped with a small random nudge. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
@@ -165,9 +184,13 @@ public:
 	FTransform GetPlayerSpawnTransform() const { return GetSpawnTransform(0, 0); }
 	/** Face-off spot of a skater: team 0 / 1, slot 0 (centre) / 1 / 2 (wings). */
 	FTransform GetSpawnTransform(int32 Team, int32 Slot) const;
-	/** The goal mouth in world space. Goal 0 is at +X (attacked by team 0), goal 1 at -X. */
+	/** The goal mouth in world space. Goal 0 is at +X, goal 1 at -X. Team 0 attacks goal 0 in odd periods and goal 1
+	 *  in even ones (change of ends): GetAttackGoal() is the only place that knows. */
 	FSkateGoalFrame GetGoalFrame(int32 GoalIndex = 0) const;
-	ASkateGoalkeeper* GetGoalkeeper(int32 GoalIndex = 0) const { return GoalIndex == 0 ? Goalkeeper0 : Goalkeeper1; }
+	int32 GetAttackGoal(int32 Team) const { return (Team == 0) != bEndsSwapped ? 0 : 1; }
+	bool AreEndsSwapped() const { return bEndsSwapped; }
+	/** The keeper standing in goal GoalIndex right now. */
+	ASkateGoalkeeper* GetGoalkeeper(int32 GoalIndex = 0) const;
 	FVector GetBallSpawnLocation() const;
 	FVector GetRinkCenter() const { return GetActorLocation(); }
 	const FSkateArenaLayout& GetLayout() const { return Layout; }
@@ -175,7 +198,7 @@ public:
 
 	/** Face-off: every skater, both keepers and the ball back to their start points, all stopped. */
 	void ResetScene();
-	/** Score 0:0, full clock, face-off. */
+	/** Score 0:0, period 1, full clock, face-off. A finished series starts over. */
 	void RestartMatch();
 
 	/** Test helper: places a resting ball just in front of the skater's feet. */
@@ -192,12 +215,25 @@ public:
 	ESkateDifficulty GetDifficulty() const { return Difficulty; }
 	void CycleDifficulty(int32 Direction);
 	bool AreHitsEnabled() const { return Difficulty != ESkateDifficulty::Easy; }
-	/** The AI knobs for the current difficulty, starting from a skater's own tuning. */
+	/** The AI knobs for the current difficulty (and the series score), starting from a skater's own tuning. */
 	FSkateAITuning GetAITuning(const FSkateAITuning& Base) const;
+	/** The keeper knobs for the current difficulty: on Easy the opponents' keeper (team 1) reacts later and dives shorter. */
+	FSkateKeeperTuning GetKeeperTuning(const FSkateKeeperTuning& Base, int32 KeeperTeam) const;
 	int32 GetScore(int32 Team) const { return Team == 0 ? Score0 : Score1; }
 	int32 GetGoals() const { return Score0 + Score1; }
 	double GetLastGoalTime() const { return LastGoalTime; }
 	int32 GetLastGoalTeam() const { return LastGoalTeam; }
+	/** Slot (0-based) of the scorer on the scoring team; INDEX_NONE when the keeper or an opponent put it in. */
+	int32 GetLastScorerSlot() const { return LastScorerSlot; }
+	int32 GetPeriod() const { return Period; }
+	int32 GetPeriods() const { return FMath::Clamp(Layout.Periods, 1, 9); }
+	/** World time the last period ended (the break text), large negative before the first. */
+	double GetLastPeriodEndTime() const { return LastPeriodEndTime; }
+	// ---- Series ----
+	int32 GetWins(int32 Team) const { return Team == 0 ? Wins0 : Wins1; }
+	bool IsSeriesOn() const { return Layout.SeriesWins > 0; }
+	bool IsSeriesOver() const { return IsSeriesOn() && (Wins0 >= Layout.SeriesWins || Wins1 >= Layout.SeriesWins); }
+	int32 GetSeriesWinner() const { return Wins0 >= Layout.SeriesWins ? 0 : (Wins1 >= Layout.SeriesWins ? 1 : INDEX_NONE); }
 	/** Seconds left on the clock. */
 	float GetClock() const { return Clock; }
 	bool IsMatchOver() const { return bMatchOver; }
@@ -273,8 +309,18 @@ private:
 
 	int32 Score0 = 0;
 	int32 Score1 = 0;
+	int32 Wins0 = 0;
+	int32 Wins1 = 0;
 	int32 LastGoalTeam = INDEX_NONE;
+	int32 LastScorerSlot = INDEX_NONE;
 	double LastGoalTime = -1000.0;
+	double LastPeriodEndTime = -1000.0;
+	/** Real time (s) the goal slow motion ends; < 0 = none running. */
+	double SlowMoRealEnd = -1.0;
+	int32 Period = 1;
+	bool bEndsSwapped = false;
+	/** The next ResetScene swaps ends (set at the end of a period). */
+	bool bPendingEndsSwap = false;
 	float Clock = 0.f;
 	/** Seconds left before the face-off after a goal (< 0: play on). */
 	float GoalPauseLeft = -1.f;

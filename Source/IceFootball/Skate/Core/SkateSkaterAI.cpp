@@ -124,6 +124,7 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		}
 	};
 
+	Brain.DekeRest -= Dt;
 	if (!View.bBallValid)
 	{
 		D.Move.Brake = 1.f;
@@ -214,6 +215,12 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 			const FSkateVec2 ToThreat = View.ThreatPos - View.Pos;
 			const float ThreatDist = ToThreat.Size();
 			const FSkateVec2 ThreatDir = ToThreat.GetSafeNormal(D.Move.Direction);
+			// Close and in my face: a deke away from its side (the take pressed into it beats the presser).
+			if (Tuning.DekeRange > 0.f && Brain.DekeRest <= 0.f && ThreatDist < Tuning.DekeRange && View.Heading.Dot(ThreatDir) > DekeFacingDot)
+			{
+				D.DekeSide = View.Heading.Cross(ThreatDir) >= 0.f ? -1 : 1;
+				Brain.DekeRest = FSkateSkaterAI::DekeRest;
+			}
 			if (ThreatDist < AvoidDistance && D.Move.Direction.Dot(ThreatDir) > std::cos(AvoidConeDeg * SkateMath::DegToRad))
 			{
 				const float Side = D.Move.Direction.Cross(ThreatDir) >= 0.f ? -1.f : 1.f; // away from the threat's side

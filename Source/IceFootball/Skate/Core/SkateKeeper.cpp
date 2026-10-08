@@ -278,7 +278,8 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 	if (State.DiveTime < 0.f && State.TimeSinceRelease > NoSmotherAfterRelease && Bottom < 40.f && SkateMath::Abs(KeeperLat) < 60.f)
 	{
 		const float Speed = Ball.Vel.Size();
-		const bool bLooseSlow = !Ball.bHeldBySkater && Along > L - BodyDepth && Along < L + 110.f && Speed < 350.f;
+		// A slow loose ball in front, not rolling away (a fresh rebound is left for the shooters: no smother for 1 s after a save).
+		const bool bLooseSlow = !Ball.bHeldBySkater && Along > L - BodyDepth && Along < L + 110.f && Speed < 350.f && VAlong < 50.f && State.TimeSinceAction > 1.f;
 		const bool bDribbledIn = Ball.bHeldBySkater && Along > L - BodyDepth && Along < L + 60.f;
 		if (bLooseSlow || bDribbledIn)
 		{
@@ -334,7 +335,7 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 	const float GoalLat = Goal.Lateral(Pc.XY());
 	const float Side = SkateMath::Abs(GoalLat) > 20.f ? SkateMath::Sign(GoalLat)
 		: (State.DiveSign != 0.f ? State.DiveSign : (SkateMath::Abs(ContactLat) > 1.f ? SkateMath::Sign(ContactLat) : 1.f));
-	const float OutAlong = SkateMath::Max(-VAlong * Tuning.ParryRestitution, 250.f);
+	const float OutAlong = SkateMath::Max(-VAlong * Tuning.ParryRestitution, 350.f);
 	const float OutLat = Side * Tuning.ParryWideSpeed + VLat * 0.25f;
 	const float OutZ = ContactBottom > 120.f ? 2.f * Tuning.ParryLift : (ContactBottom > 40.f ? Tuning.ParryLift : 0.4f * Tuning.ParryLift);
 	++State.Saves;

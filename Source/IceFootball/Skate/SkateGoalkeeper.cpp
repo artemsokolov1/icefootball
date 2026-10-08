@@ -171,7 +171,8 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 		KeeperBall.TimeSinceImpulse = Ball->GetTimeSinceGameplayImpulse();
 	}
 	const FVector2D Target = ThrowTarget();
-	const FSkateKeeperOutput Out = FSkateKeeper::Update(Tuning, Goal, KeeperBall, FSkateVec2(static_cast<float>(Target.X), static_cast<float>(Target.Y)),
+	const FSkateKeeperTuning KT = Rink->GetKeeperTuning(Tuning, Team);
+	const FSkateKeeperOutput Out = FSkateKeeper::Update(KT, Goal, KeeperBall, FSkateVec2(static_cast<float>(Target.X), static_cast<float>(Target.Y)),
 		DeltaSeconds, State);
 
 	if (Ball)

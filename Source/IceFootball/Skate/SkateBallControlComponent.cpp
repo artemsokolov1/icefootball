@@ -80,7 +80,7 @@ bool USkateBallControlComponent::TryTake(float Range, float Protect, float BallS
 	}
 	USkateBallControlComponent* Other = Cast<USkateBallControlComponent>(const_cast<UObject*>(B->GetHolder()));
 	const ASkateCharacter* Carrier = Other ? Cast<ASkateCharacter>(Other->GetOwner()) : nullptr;
-	if (!Carrier || Carrier->GetTeam() == Skater->GetTeam() || Other->GetControlState().Possession.TimeHeld < Protect
+	if (!Carrier || Carrier->GetTeam() == Skater->GetTeam() || Other->GetControlState().Possession.TimeHeld < Protect || Carrier->IsDeking()
 		|| FVector::Dist2D(B->GetActorLocation(), Skater->GetActorLocation()) > Range)
 	{
 		return false;
@@ -236,7 +236,7 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 			const USkateBallControlComponent* Other = Cast<USkateBallControlComponent>(B->GetHolder());
 			const ASkateCharacter* Carrier = Other ? Cast<ASkateCharacter>(Other->GetOwner()) : nullptr;
 			const FSkatePossessionTuning& PT = ControlTuning.Possession;
-			Query.bStealAllowed = Carrier && Carrier->GetTeam() != Skater->GetTeam()
+			Query.bStealAllowed = Carrier && Carrier->GetTeam() != Skater->GetTeam() && !Carrier->IsDeking()
 				&& Other->GetControlState().Possession.TimeHeld >= PT.StealProtectTime
 				&& Other->GetControlState().Possession.CarryError > PT.StealLooseDistance;
 		}
@@ -252,9 +252,9 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		}
 		if (const ASkateArena* Arena = CachedArena.Get())
 		{
-			// Shots with an idle stick go at the goal this team attacks (team 0: goal 0).
+			// Shots with an idle stick go at the goal this team attacks (ends change between periods).
 			Query.bShotTargetValid = true;
-			Query.ShotTargetPos = Arena->GetGoalFrame(Skater->GetTeam() == 0 ? 0 : 1).Center;
+			Query.ShotTargetPos = Arena->GetGoalFrame(Arena->GetAttackGoal(Skater->GetTeam())).Center;
 		}
 		Query.bThroughTargetValid = bThroughTargetValid;
 		Query.ThroughTargetPos = FSkateVec2(static_cast<float>(ThroughTarget.X), static_cast<float>(ThroughTarget.Y));

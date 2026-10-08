@@ -33,6 +33,7 @@ void USkateMovementComponent::ResetSkating(const FVector& Facing)
 {
 	FSkateModel::Reset(SkateState, FSkateVec2(static_cast<float>(Facing.X), static_cast<float>(Facing.Y)));
 	PendingInput = FSkateMoveInput();
+	PendingDeke = 0;
 	Velocity = FVector::ZeroVector;
 	bBrakeFaultThisFrame = false;
 }
@@ -53,7 +54,10 @@ void USkateMovementComponent::CalcVelocity(float DeltaTime, float Friction, bool
 
 	// CMC owns the actual velocity (it is corrected by wall slides); the model reads and writes it.
 	SkateState.Velocity = FSkateVec2(static_cast<float>(Velocity.X), static_cast<float>(Velocity.Y));
-	FSkateModel::Step(MoveTuning, PendingInput, DeltaTime, SkateState);
+	FSkateMoveInput In = PendingInput;
+	In.DekeSide = PendingDeke; // consumed by the first CMC iteration of this tick
+	PendingDeke = 0;
+	FSkateModel::Step(MoveTuning, In, DeltaTime, SkateState);
 	bBrakeFaultThisFrame |= SkateState.bBrakeReversalFault;
 
 	Velocity.X = SkateState.Velocity.X;

@@ -51,6 +51,32 @@ void FSkateModel::Step(const FSkateMovementTuning& Tuning, const FSkateMoveInput
 		return;
 	}
 
+	// Sprint stamina: boost drains it while pushing, rest refills it; an empty tank locks the boost out until a third
+	// is back. The effective boost fades over the last fifth, so the sprint tails off instead of cutting out.
+	FSkateMoveInput In = Input;
+	{
+		const bool bThrusting = In.Magnitude > 0.f && In.Direction.SizeSquared() > 0.25f;
+		if (State.bExhausted && State.Stamina >= 0.3f)
+		{
+			State.bExhausted = false;
+		}
+		const float Asked = SkateMath::Clamp01(In.Boost);
+		In.Boost = State.bExhausted ? 0.f : Asked * SkateMath::Clamp01(State.Stamina / 0.2f);
+		// Drains by what is asked for (a held RT on an empty tank keeps it empty), refills only while RT is let go.
+		const float Drain = bThrusting ? Asked * Dt / SkateMath::Max(Tuning.StaminaTime, 0.1f) : 0.f;
+		State.Stamina = SkateMath::Clamp01(State.Stamina - Drain + (1.f - Asked) * Dt / SkateMath::Max(Tuning.StaminaRecoverTime, 0.1f));
+		if (State.Stamina <= 0.f)
+		{
+			State.bExhausted = true;
+		}
+	}
+	// Deke: a one-frame trigger starts a sideways cut (SubStep forces the across-blade speed while it lasts).
+	if (In.DekeSide != 0 && State.DekeLeft <= 0.f)
+	{
+		State.DekeLeft = Tuning.DekeTime;
+		State.DekeSign = SkateMath::Sign(static_cast<float>(In.DekeSide));
+	}
+
 	const float MaxH = SkateMath::Clamp(Tuning.MaxSubstep, 0.0005f, 0.05f);
 	int NumSteps = static_cast<int>(std::ceil(Dt / MaxH - 1.e-4f));
 	NumSteps = NumSteps < 1 ? 1 : (NumSteps > 256 ? 256 : NumSteps);
@@ -59,8 +85,8 @@ void FSkateModel::Step(const FSkateMovementTuning& Tuning, const FSkateMoveInput
 	// How fast the player is spinning the stick (per frame, smoothed ~80 ms). Used to keep a turn going in the
 	// direction the stick spins when it spins faster than the skater can turn.
 	{
-		const bool bStick = Input.Magnitude > 0.f && Input.Direction.SizeSquared() > 0.25f;
-		const FSkateVec2 Dir = bStick ? Input.Direction.GetSafeNormal() : FSkateVec2();
+		const bool bStick = In.Magnitude > 0.f && In.Direction.SizeSquared() > 0.25f;
+		const FSkateVec2 Dir = bStick ? In.Direction.GetSafeNormal() : FSkateVec2();
 		float Rate = 0.f;
 		if (bStick && State.bPrevFrameStick)
 		{
@@ -75,7 +101,7 @@ void FSkateModel::Step(const FSkateMovementTuning& Tuning, const FSkateMoveInput
 	State.bBrakeReversalFault = false;
 	for (int Index = 0; Index < NumSteps; ++Index)
 	{
-		SubStep(Tuning, Input, H, State, Acc);
+		SubStep(Tuning, In, H, State, Acc);
 	}
 
 	const float InvDt = 1.f / Dt;
@@ -87,16 +113,16 @@ void FSkateModel::Step(const FSkateMovementTuning& Tuning, const FSkateMoveInput
 	State.SlipAngleDeg = Acc.Slip / static_cast<float>(NumSteps);
 
 	const float Speed = State.Velocity.Size();
-	const float Mag = Input.Direction.SizeSquared() > 0.25f ? SkateMath::Clamp01(Input.Magnitude) : 0.f;
-	const float Boost = SkateMath::Clamp01(Input.Boost);
+	const float Mag = In.Direction.SizeSquared() > 0.25f ? SkateMath::Clamp01(In.Magnitude) : 0.f;
+	const float Boost = SkateMath::Clamp01(In.Boost);
 	State.TargetSpeed = Mag * SkateMath::Lerp(Tuning.MaxSpeed, Tuning.BoostMaxSpeed, Boost);
-	State.TurnRateLimitDeg = TurnRateLimit(Tuning, Speed, Input.Brake) * SkateMath::RadToDeg;
+	State.TurnRateLimitDeg = TurnRateLimit(Tuning, Speed, In.Brake) * SkateMath::RadToDeg;
 
 	if (State.bReverseStop)
 	{
 		State.Phase = ESkateMovePhase::ReverseStop;
 	}
-	else if (Input.Brake > 0.1f && Speed > 1.f)
+	else if (In.Brake > 0.1f && Speed > 1.f)
 	{
 		State.Phase = ESkateMovePhase::Brake;
 	}
@@ -213,7 +239,7 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 		// At speed, never let the blades lead the travel direction by more than MaxCarveLead:
 		// the turn stays a carve (grip bends the velocity, speed kept) instead of a sideways skid.
 		const float LeadBlend = SkateMath::SmoothStep01((Speed - Tuning.CarveLeadSpeed) / SkateMath::Max(Tuning.CarveLeadSpeed, 1.f));
-		if (LeadBlend > 0.f && !State.bReverseStop && Brake < 0.05f)
+		if (LeadBlend > 0.f && !State.bReverseStop && Brake < 0.05f && State.DekeLeft <= 0.f) // a deke is a sideways hop, not a carve
 		{
 			const FSkateVec2 Axis = AxisAlignedWith(Heading, TravelDir);
 			const float Lead = Axis.SignedAngleTo(Heading);
@@ -234,7 +260,18 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 	const float SpeedBefore = Speed;
 
 	// ---- 4. Lateral grip: remove across-blade speed, redirect most of it along the blade ----
-	if (SkateMath::Abs(VLat) > 0.f)
+	// Deke: the blades are picked up and set down a metre to the side - the across-blade speed is forced for DekeTime
+	// (no grip, no carve), and the skater lands straight: the sideways speed is gone the moment the cut ends.
+	if (State.DekeLeft > 0.f)
+	{
+		VLat = State.DekeSign * Tuning.DekeSpeed;
+		State.DekeLeft -= H;
+		if (State.DekeLeft <= 0.f)
+		{
+			VLat = 0.f;
+		}
+	}
+	else if (SkateMath::Abs(VLat) > 0.f)
 	{
 		const float SlipRad = std::atan2(SkateMath::Abs(VLat), SkateMath::Abs(VLong));
 		const float Desired = VLat * SkateMath::DecayAlpha(Tuning.LateralGrip, H);

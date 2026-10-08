@@ -176,7 +176,7 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 	{
 		FitDistance = FMath::Max(FitDistance, NeededZoom(FVector2D(InterestActor->GetActorLocation() - TargetLoc) - DesiredInterestOffset));
 	}
-	const float DesiredZoom = FMath::Clamp(FitDistance, Tuning.Distance, FMath::Max(Tuning.MaxDistance, Tuning.Distance));
+	const float DesiredZoom = FMath::Clamp(FitDistance, Tuning.Distance, FMath::Max(Tuning.MaxDistance, Tuning.Distance)) * (bCelebration ? 0.6f : 1.f);
 	if (DeltaSeconds > 0.f && Zoom > 0.f)
 	{
 		InterestOffset = SmoothDamp(InterestOffset, DesiredInterestOffset, InterestOffsetVelocity, Tuning.InterestSmoothTime, DeltaSeconds);

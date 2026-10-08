@@ -40,9 +40,20 @@ void USkateIceSynth::TriggerImpact(float Strength, float Pitch)
 	ImpactSerial.fetch_add(1, std::memory_order_release);
 }
 
+void USkateIceSynth::TriggerHorn()
+{
+	HornSerial.fetch_add(1, std::memory_order_release);
+}
+
 int32 USkateIceSynth::OnGenerateAudio(float* OutAudio, int32 NumSamples)
 {
 	using namespace SkateAudioDetail;
+	if (HornSerial.load(std::memory_order_acquire) != SeenHorn)
+	{
+		SeenHorn = HornSerial.load(std::memory_order_relaxed);
+		HornLeft = 1.1f;
+	}
+	const float HornSmooth = OnePole(40.f, Rate);
 	const float GlideT = GlideTarget.load(std::memory_order_relaxed);
 	const float BrakeT = BrakeTarget.load(std::memory_order_relaxed);
 
@@ -96,12 +107,29 @@ int32 USkateIceSynth::OnGenerateAudio(float* OutAudio, int32 NumSamples)
 		const float Click = White * ClickEnv;
 		ClickEnv *= ClickDecay;
 
-		const float Mix = GlideSig * Glide * 0.9f + BrakeSig * Brake * 1.1f + Thump * 0.8f + Click * 0.35f;
+		// Goal horn: two low notes a fourth apart with some harmonics, held, then let go.
+		float Horn = 0.f;
+		const float HornTarget = HornLeft > 0.3f ? 1.f : 0.f;
+		HornEnv += (HornTarget - HornEnv) * HornSmooth;
+		if (HornLeft > 0.f || HornEnv > 0.001f)
+		{
+			HornLeft -= 1.f / Rate;
+			HornPhaseA += PhaseStep * 174.6f;
+			HornPhaseB += PhaseStep * 233.1f;
+			Horn = (FMath::Sin(HornPhaseA) + 0.5f * FMath::Sin(2.f * HornPhaseA) + 0.3f * FMath::Sin(3.f * HornPhaseA)
+				+ FMath::Sin(HornPhaseB) + 0.4f * FMath::Sin(2.f * HornPhaseB)) * HornEnv * 0.35f;
+		}
+		const float Mix = GlideSig * Glide * 0.9f + BrakeSig * Brake * 1.1f + Thump * 0.8f + Click * 0.35f + Horn;
 		OutAudio[Index] = SoftClip(Mix) * 0.7f;
 	}
 	if (ImpactPhase > 2.f * UE_PI * 1000.f)
 	{
 		ImpactPhase = FMath::Fmod(ImpactPhase, 2.f * UE_PI);
+	}
+	if (HornPhaseA > 2.f * UE_PI * 1000.f)
+	{
+		HornPhaseA = FMath::Fmod(HornPhaseA, 2.f * UE_PI);
+		HornPhaseB = FMath::Fmod(HornPhaseB, 2.f * UE_PI);
 	}
 	return NumSamples;
 }

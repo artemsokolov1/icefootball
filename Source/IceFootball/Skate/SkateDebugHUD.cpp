@@ -115,12 +115,14 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	DrawText(Status, Info, 12.f, 4.f, GEngine->GetSmallFont(), TextScale);
 
 	// Score / clock / team line. Keeper = the opponents' keeper (the one the player shoots at).
-	const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper(0) : nullptr;
+	const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper(Arena->GetAttackGoal(0)) : nullptr;
 	const int32 TeamSize = Pc ? Pc->GetTeam().Num() : 1;
 	const int32 ClockSec = Arena ? FMath::CeilToInt(Arena->GetClock()) : 0;
-	const FString TeamLine = FString::Printf(TEXT("YOU %d : %d CPU  |  %d:%02d%s  |  Skater %d of %d%s  |  Saves against you %d"),
-		Arena ? Arena->GetScore(0) : 0, Arena ? Arena->GetScore(1) : 0, ClockSec / 60, ClockSec % 60,
-		Arena && Arena->IsMatchOver() ? TEXT("  FULL TIME") : TEXT(""),
+	const FString Series = Arena && Arena->IsSeriesOn() ? FString::Printf(TEXT("  |  Series %d - %d (first to %d)"), Arena->GetWins(0), Arena->GetWins(1),
+		Arena->GetLayout().SeriesWins) : FString();
+	const FString TeamLine = FString::Printf(TEXT("YOU %d : %d CPU  |  P%d/%d  %d:%02d%s%s  |  Skater %d of %d%s  |  Saves against you %d"),
+		Arena ? Arena->GetScore(0) : 0, Arena ? Arena->GetScore(1) : 0, Arena ? Arena->GetPeriod() : 1, Arena ? Arena->GetPeriods() : 1,
+		ClockSec / 60, ClockSec % 60, Arena && Arena->IsMatchOver() ? TEXT("  FULL TIME") : TEXT(""), *Series,
 		Skater->GetTeamSlot() + 1, TeamSize, TeamSize > 1 ? TEXT(" (LB / Q: switch)") : TEXT(""),
 		Keeper ? Keeper->GetSaves() : 0);
 	DrawText(TeamLine, Info, 12.f, 24.f, GEngine->GetSmallFont(), TextScale);
@@ -219,6 +221,16 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 				Prompts.Add(bGamepad ? TEXT("Y  through pass") : TEXT("I  through pass"));
 			}
 			Prompts.Add(bGamepad ? TEXT("X  shoot (hold = harder)") : TEXT("K  shoot (hold = harder)"));
+			// An opponent closing in: the deke is the answer.
+			bool bPressed = false;
+			for (const TWeakObjectPtr<ASkateCharacter>& Member : Pc->GetOpponents())
+			{
+				bPressed |= Member.IsValid() && FVector::Dist2D(Member->GetActorLocation(), Skater->GetActorLocation()) < 450.f;
+			}
+			if (bPressed && Skater->GetTimeSinceDeke() > Skater->GetActiveTuning().BallControl.Possession.DekeCooldown)
+			{
+				Prompts.Add(bGamepad ? TEXT("B  DEKE") : TEXT("L  DEKE"));
+			}
 		}
 		else if (Skater->CanTakeNow())
 		{
@@ -227,7 +239,7 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		float X = Canvas->ClipX * 0.5f - 90.f * Prompts.Num();
 		for (const FString& Prompt : Prompts)
 		{
-			const bool bTake = Prompt.Contains(TEXT("TAKE"));
+			const bool bTake = Prompt.Contains(TEXT("TAKE")) || Prompt.Contains(TEXT("DEKE"));
 			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.5f), X - 6.f, Canvas->ClipY - 44.f, 176.f, 24.f);
 			DrawText(Prompt, bTake ? FLinearColor(1.f, 0.9f, 0.2f) : Info, X, Canvas->ClipY - 40.f, GEngine->GetSmallFont(), TextScale);
 			X += 180.f;
@@ -240,6 +252,20 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		{
 			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.5f), Canvas->ClipX * 0.5f - 230.f, 50.f, 460.f, 26.f);
 			DrawText(Steps[Step], FLinearColor(1.f, 0.95f, 0.6f), Canvas->ClipX * 0.5f - 220.f, 54.f, GEngine->GetSmallFont(), TextScale);
+		}
+	}
+
+	// Sprint stamina (only while it is not full): a thin bar under the prompts.
+	{
+		const FSkateMoveState& Move = Skater->GetSkateMovement()->GetSkateState();
+		if (Move.Stamina < 0.999f)
+		{
+			const float W = 180.f;
+			const float X = Canvas->ClipX * 0.5f - W * 0.5f;
+			const float Y = Canvas->ClipY - 14.f;
+			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.5f), X - 2.f, Y - 2.f, W + 4.f, 10.f);
+			DrawRect(Move.bExhausted ? FLinearColor(1.f, 0.35f, 0.2f, 0.9f) : FLinearColor(0.4f, 1.f, 0.4f, 0.9f), X, Y, W * Move.Stamina, 6.f);
+			DrawText(TEXT("SPRINT"), Dim, X - 52.f, Y - 6.f, GEngine->GetSmallFont(), TextScale);
 		}
 	}
 
@@ -266,14 +292,31 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	}
 	else if (Arena && Arena->IsMatchOver())
 	{
-		const FString Text = FString::Printf(TEXT("FULL TIME   YOU %d : %d CPU      Menu / R: new match"), Arena->GetScore(0), Arena->GetScore(1));
-		DrawText(Text, Good, Canvas->ClipX * 0.5f - 260.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.5f);
+		const int32 S0 = Arena->GetScore(0), S1 = Arena->GetScore(1);
+		const TCHAR* Verdict = S0 > S1 ? TEXT("YOU WIN") : (S0 < S1 ? TEXT("CPU WINS") : TEXT("DRAW"));
+		FString Text = FString::Printf(TEXT("FULL TIME   %s  %d : %d      Menu / R: next match"), Verdict, S0, S1);
+		if (Arena->IsSeriesOver())
+		{
+			Text = FString::Printf(TEXT("%s THE SERIES %d - %d      Menu / R: new series"), Arena->GetSeriesWinner() == 0 ? TEXT("YOU WIN") : TEXT("CPU WINS"),
+				Arena->GetWins(0), Arena->GetWins(1));
+		}
+		DrawText(Text, S0 >= S1 ? Good : Note, Canvas->ClipX * 0.5f - 260.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.5f);
+	}
+	else if (Arena && Arena->IsGoalPause() && Arena->GetLastPeriodEndTime() > Arena->GetLastGoalTime())
+	{
+		const FString Text = FString::Printf(TEXT("END OF PERIOD %d   YOU %d : %d CPU      change of ends"), Arena->GetPeriod() - 1, Arena->GetScore(0), Arena->GetScore(1));
+		DrawText(Text, Info, Canvas->ClipX * 0.5f - 300.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.4f);
 	}
 	else if (Arena && GetWorld()->GetTimeSeconds() - Arena->GetLastGoalTime() < 2.4)
 	{
-		const FString Text = FString::Printf(TEXT("%s   YOU %d : %d CPU"), Arena->GetLastGoalTeam() == 0 ? TEXT("GOAL!") : TEXT("CPU SCORES"),
-			Arena->GetScore(0), Arena->GetScore(1));
-		DrawText(Text, Arena->GetLastGoalTeam() == 0 ? Good : Note, Canvas->ClipX * 0.5f - 170.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.6f);
+		const FString Who = Arena->GetLastGoalTeam() == 0 && Arena->GetLastScorerSlot() != INDEX_NONE ? FString::Printf(TEXT("GOAL!  #%d"), Arena->GetLastScorerSlot() + 1)
+			: (Arena->GetLastGoalTeam() == 0 ? TEXT("GOAL!") : TEXT("CPU SCORES"));
+		const FString Text = FString::Printf(TEXT("%s   YOU %d : %d CPU"), *Who, Arena->GetScore(0), Arena->GetScore(1));
+		DrawText(Text, Arena->GetLastGoalTeam() == 0 ? Good : Note, Canvas->ClipX * 0.5f - 190.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.6f);
+	}
+	else if (Skater->GetTimeSinceDeked() < 0.8f)
+	{
+		DrawText(TEXT("DEKED!"), Note, Canvas->ClipX * 0.5f - 60.f, Canvas->ClipY * 0.22f, GEngine->GetLargeFont(), 1.4f);
 	}
 	else if (Skater->GetTimeSinceHit() < 0.8f)
 	{
@@ -412,7 +455,7 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 				Line(FString::Printf(TEXT("Teammate AI: %s"), *TeamPc->GetTeammateModeName()), Dim);
 			}
 		}
-		if (const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper() : nullptr)
+		if (const ASkateGoalkeeper* Keeper = Arena ? Arena->GetGoalkeeper(Arena->GetAttackGoal(0)) : nullptr)
 		{
 			const FSkateKeeperState& K = Keeper->GetKeeperState();
 			Line(FString::Printf(TEXT("Keeper: at %+.0f cm  %s%s  last: %s  saves %d (caught %d)"), K.Lateral,
@@ -507,8 +550,8 @@ void ASkateDebugHUD::DrawDebugPanel(ASkateCharacter* Skater, ASkateArena* Arena)
 	CursorY = Canvas->ClipY - 7.f * LineHeight - 8.f;
 	Line(TEXT("World: green = velocity, blue = blades, yellow = stick, orange = lateral accel,"), Dim);
 	Line(TEXT("       reach zone green/cyan = trap/A-X allowed, grey = not reachable, yellow = carry point, magenta = last impulse"), Dim);
-	Line(TEXT("Pad: LS move | LT brake | RT boost | A pass | Y through pass | X shot / take the ball (no ball near: body check on Normal) | RB ball to feet | R3 camera"), Dim);
+	Line(TEXT("Pad: LS move | LT brake | RT boost (stamina) | A pass | Y through pass | B deke | X shot / take the ball (no ball near: body check on Normal) | RB ball to feet | R3 camera"), Dim);
 	Line(TEXT("     View debug | D-pad Up camera | D-pad L/R difficulty | D-pad Down FPS cap | F4 ball on/off"), Dim);
-	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J pass | I through pass | K shot / take | T ball | C camera"), Dim);
+	Line(TEXT("Keys: WASD (+LAlt half) | Space brake | LShift boost | J pass | I through pass | L deke | K shot / take | T ball | C camera"), Dim);
 	Line(TEXT("      F1 debug | F2 camera | 1/2/3 preset | F3 FPS cap | F4 ball on/off"), Dim);
 }

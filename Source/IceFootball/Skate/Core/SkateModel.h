@@ -42,6 +42,8 @@ struct FSkateMoveInput
 	float Boost = 0.f;
 	/** Skate backwards: the blades point away from the stick, thrust goes the stick's way (defenders face the play). */
 	bool bBackward = false;
+	/** Deke this frame: -1 cut left, +1 cut right (a one-frame trigger; ignored while a deke is under way). */
+	int DekeSide = 0;
 };
 
 struct FSkateMoveState
@@ -61,6 +63,12 @@ struct FSkateMoveState
 	float StickSpin = 0.f;
 	FSkateVec2 PrevFrameStickDir;
 	bool bPrevFrameStick = false;
+	/** Sprint stamina 0..1 (FSkateMovementTuning::StaminaTime); empty = exhausted until a third is back. */
+	float Stamina = 1.f;
+	bool bExhausted = false;
+	/** Deke under way: seconds left of the sideways cut and its side (+1 = right of the blades). */
+	float DekeLeft = 0.f;
+	float DekeSign = 0.f;
 
 	// ---- Telemetry of the last Step() call (averages over the step) ----
 	ESkateMovePhase Phase = ESkateMovePhase::Idle;

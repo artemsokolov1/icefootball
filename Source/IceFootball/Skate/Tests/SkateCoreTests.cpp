@@ -265,6 +265,26 @@ namespace SkateCoreTestsDetail
 	// Individual tests
 	// ======================================================================================
 
+	void TestSprintStamina(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Move.SprintStaminaRunsOut");
+		const FSkateTuning T = SkateTuningPresets::Make(ESkatePreset::Balanced);
+		FSkateSim Sim;
+		const FSkateVec2 Dir(1.f, 0.f);
+		float SpeedAt2 = 0.f, SpeedAt9 = 0.f, SpeedAfterRest = 0.f;
+		RunUntil(Sim, T.Movement, 60.f, 9.f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 1.f); },
+			[&](const FSkateSim& S) { if (S.Time >= 2.f && SpeedAt2 == 0.f) { SpeedAt2 = S.State.Velocity.Size(); } return false; });
+		SpeedAt9 = Sim.State.Velocity.Size();
+		const float StaminaAt9 = Sim.State.Stamina;
+		// Rest with the boost off (still skating), then sprint again.
+		RunUntil(Sim, T.Movement, 60.f, 3.f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 0.f); }, [](const FSkateSim&) { return false; });
+		RunUntil(Sim, T.Movement, 60.f, 1.5f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 1.f); }, [](const FSkateSim&) { return false; });
+		SpeedAfterRest = Sim.State.Velocity.Size();
+		R.bPassed = SpeedAt2 > 0.9f * T.Movement.BoostMaxSpeed && SpeedAt9 < T.Movement.MaxSpeed + 60.f && StaminaAt9 < 0.05f && SpeedAfterRest > 0.85f * T.Movement.BoostMaxSpeed;
+		R.Details = Fmt("RT held: %.0f cm/s at 2 s, %.0f cm/s at 9 s (stamina %.2f); 3 s rest then RT again: %.0f cm/s after 1.5 s", SpeedAt2, SpeedAt9, StaminaAt9, SpeedAfterRest);
+		Out.push_back(R);
+	}
+
 	void TestInputDeadZone(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R{ "Input.RadialDeadZone" };
@@ -1625,6 +1645,7 @@ std::vector<FSkateTestResult> RunSkateCoreTests()
 	std::vector<FSkateTestResult> Results;
 	TestInputDeadZone(Results);
 	TestAccelerationAndFps(Results);
+	TestSprintStamina(Results);
 	TestPartialStick(Results);
 	TestGlide(Results);
 	TestBrakeStop(Results);
