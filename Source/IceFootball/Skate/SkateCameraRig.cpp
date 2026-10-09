@@ -99,6 +99,8 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 	}
 
 	const FVector Velocity = TargetActor->GetVelocity();
+	// A skater's location is its capsule centre (92 cm up); a keeper's root sits on the ice.
+	const float BaseZ = Cast<ASkateCharacter>(TargetActor) ? -92.f : 0.f;
 	if (bChaseMode)
 	{
 		// Behind the skater, easing after its heading. Look-ahead along the velocity, no interest framing.
@@ -121,7 +123,7 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 		}
 		Camera->SetFieldOfView(Tuning.ChaseFieldOfView);
 		const FVector TargetLoc = TargetActor->GetActorLocation();
-		const FVector Focus(TargetLoc.X + LookAhead.X, TargetLoc.Y + LookAhead.Y, TargetLoc.Z - 92.f + FocusHeight);
+		const FVector Focus(TargetLoc.X + LookAhead.X, TargetLoc.Y + LookAhead.Y, TargetLoc.Z + BaseZ + FocusHeight);
 		const FRotator Rotation(Tuning.ChasePitch, ChaseYaw, 0.f);
 		SetActorLocationAndRotation(Focus - Rotation.Vector() * Tuning.ChaseDistance + BlendOffset, Rotation);
 		return;
@@ -190,7 +192,7 @@ void ASkateCameraRig::UpdateCamera(float DeltaSeconds)
 
 	// Ground point under the skater (capsule centre minus half height ~ 92) plus focus height.
 	const FVector Focus(TargetLoc.X + LookAhead.X + InterestOffset.X, TargetLoc.Y + LookAhead.Y + InterestOffset.Y,
-		TargetLoc.Z - 92.f + FocusHeight);
+		TargetLoc.Z + BaseZ + FocusHeight);
 	if (DeltaSeconds > 0.f)
 	{
 		BlendOffset *= FMath::Exp(-7.f * DeltaSeconds); // ~0.4 s to settle on a new skater

@@ -44,9 +44,6 @@ struct FSkateMoveInput
 	bool bBackward = false;
 	/** Deke this frame: -1 cut left, +1 cut right (a one-frame trigger; ignored while a deke is under way). */
 	int DekeSide = 0;
-	/** Defensive stance: face FaceDir and step where the stick points (StanceSpeed), instead of turning and skating. */
-	bool bStance = false;
-	FSkateVec2 FaceDir;
 };
 
 struct FSkateMoveState

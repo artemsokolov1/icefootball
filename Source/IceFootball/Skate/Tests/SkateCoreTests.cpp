@@ -293,33 +293,6 @@ namespace SkateCoreTestsDetail
 		Out.push_back(R);
 	}
 
-	void TestStance(std::vector<FSkateTestResult>& Out)
-	{
-		FSkateTestResult R("Move.StanceStepsAcross");
-		const FSkateTuning T = SkateTuningPresets::Make(ESkatePreset::Balanced);
-		FSkateSim Sim;
-		// A defender facing +X (the carrier) pushes the stick to +Y: it steps across, still facing +X, and stops when
-		// the stick is let go. Plain skating would turn the blades first and drift off in an arc.
-		float MinFace = 1.f;
-		auto Step = [&](const FSkateVec2& Dir, float Mag)
-		{
-			FSkateMoveInput In = Stick(Dir, Mag);
-			In.bStance = true;
-			In.FaceDir = FSkateVec2(1.f, 0.f);
-			return In;
-		};
-		RunUntil(Sim, T.Movement, 60.f, 0.6f, [&](float, const FSkateMoveState&) { return Step(FSkateVec2(0.f, 1.f), 1.f); },
-			[&](const FSkateSim& S) { MinFace = SkateMath::Min(MinFace, S.State.Heading.Dot(FSkateVec2(1.f, 0.f))); return false; });
-		const FSkateVec2 Vel = Sim.State.Velocity;
-		const float Across = Sim.Pos.Y;
-		RunUntil(Sim, T.Movement, 60.f, 0.6f, [&](float, const FSkateMoveState&) { return Step(FSkateVec2(), 0.f); }, [](const FSkateSim&) { return false; });
-		const float Drift = Sim.Pos.Y - Across;
-		R.bPassed = MinFace > 0.98f && Vel.Y > 0.9f * T.Movement.StanceSpeed && SkateMath::Abs(Vel.X) < 20.f && Across > 120.f && Drift < 60.f && Sim.State.Velocity.Size() < 1.f;
-		R.Details = Fmt("stance, stick across for 0.6 s: %.0f cm/s sideways (%.0f along), %.0f cm across, heading kept (min dot %.3f); stick let go: %.0f cm of drift, then %.1f cm/s",
-			Vel.Y, Vel.X, Across, MinFace, Drift, Sim.State.Velocity.Size());
-		Out.push_back(R);
-	}
-
 	void TestInputDeadZone(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R{ "Input.RadialDeadZone" };
@@ -1710,7 +1683,6 @@ std::vector<FSkateTestResult> RunSkateCoreTests()
 	TestInputDeadZone(Results);
 	TestAccelerationAndFps(Results);
 	TestSprintStamina(Results);
-	TestStance(Results);
 	TestPartialStick(Results);
 	TestGlide(Results);
 	TestBrakeStop(Results);

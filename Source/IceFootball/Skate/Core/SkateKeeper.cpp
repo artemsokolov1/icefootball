@@ -127,7 +127,7 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 			DepthTarget = Tuning.ChallengeDepth * SkateMath::Clamp01((Tuning.ChallengeFar - AlongRaw) / SkateMath::Max(Tuning.ChallengeFar - Tuning.ChallengeNear, 1.f));
 		}
 	}
-	if (!State.bThreat && State.DiveTime < 0.f)
+	if (!State.bThreat && State.DiveTime < 0.f && !(State.bHolding && State.bPlayerHeld))
 	{
 		State.Depth += SkateMath::Clamp(DepthTarget - State.Depth, -Tuning.ChallengeSpeed * Dt, Tuning.ChallengeSpeed * Dt);
 	}
@@ -165,7 +165,16 @@ FSkateKeeperOutput FSkateKeeper::Update(const FSkateKeeperTuning& Tuning, const 
 	if (State.bHolding)
 	{
 		State.HoldTimer += Dt;
-		Shuffle(0.f);
+		if (State.bPlayerHeld)
+		{
+			State.Depth = SkateMath::Clamp(State.Depth + State.HoldMove.X * Dt, 0.f, 500.f);
+			State.LateralVel = State.HoldMove.Y;
+			State.Lateral = SkateMath::Clamp(State.Lateral + State.LateralVel * Dt, -LateralLimit, LateralLimit);
+		}
+		else
+		{
+			Shuffle(0.f);
+		}
 		if (State.HoldTimer >= Tuning.HoldTime)
 		{
 			const FSkateVec2 Start = Goal.ToWorld(L + ThrowStart, State.Lateral);

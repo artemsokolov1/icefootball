@@ -80,6 +80,10 @@ struct FSkateKeeperState
 	// Ball in hands.
 	bool bHolding = false;
 	float HoldTimer = 0.f;
+	/** The player's keeper: it holds where it is and walks with the ball as HoldMove asks (cm/s: out from the line, to
+	 *  its right), out to 5 m and across to the posts; otherwise it stands still in the middle. */
+	bool bPlayerHeld = false;
+	FSkateVec2 HoldMove;
 	float TimeSinceRelease = 100.f;
 
 	// Results.

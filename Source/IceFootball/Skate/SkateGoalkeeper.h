@@ -35,11 +35,16 @@ public:
 	/** Back to the middle of the goal, ball released (scene reset). */
 	void ResetKeeper();
 
-	/** The player's keeper: a caught ball waits for A (up to PlayerHoldTime) instead of rolling out by itself. */
+	/** The player's keeper: while it holds a caught ball the player drives it (SetPlayerMove, RequestThrow / RequestClear)
+	 *  and it throws by itself only after PlayerHoldTime. */
 	void SetPlayerControlled(bool bIn) { bPlayerControlled = bIn; }
 	bool IsHoldingBall() const { return State.bHolding; }
-	/** Throw the held ball out now, to the teammate the aim points at (zero aim = the nearest). */
-	void RequestThrow(const FVector2D& Aim) { bThrowRequested = true; ThrowAim = Aim; }
+	/** The stick: world direction and 0..1; the keeper walks with the ball (out to 5 m, across to the posts). */
+	void SetPlayerMove(const FVector2D& WorldDir, float Magnitude) { PlayerMove = WorldDir * Magnitude; }
+	/** Throw the held ball now, to the teammate the aim points at (zero aim = the nearest). */
+	void RequestThrow(const FVector2D& Aim) { bThrowRequested = true; bClear = false; ThrowAim = Aim; }
+	/** Clear the held ball long along the aim (zero aim = straight out). */
+	void RequestClear(const FVector2D& Aim) { bThrowRequested = true; bClear = true; ThrowAim = Aim; }
 
 	const FSkateKeeperState& GetKeeperState() const { return State; }
 	int32 GetSaves() const { return State.Saves; }
@@ -70,7 +75,9 @@ private:
 	FSkateKeeperState State;
 	bool bPlayerControlled = false;
 	bool bThrowRequested = false;
+	bool bClear = false;
 	FVector2D ThrowAim = FVector2D::ZeroVector;
+	FVector2D PlayerMove = FVector2D::ZeroVector;
 	float Butterfly = 0.f;
 	bool bBuilt = false;
 	FVector HandLocal[2];

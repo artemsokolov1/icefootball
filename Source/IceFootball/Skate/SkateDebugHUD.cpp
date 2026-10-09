@@ -213,10 +213,11 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	{
 		const bool bGamepad = Pc->WasLastInputGamepad();
 		TArray<FString> Prompts;
-		const ASkateGoalkeeper* MyKeeper = Arena ? Arena->GetGoalkeeper(Arena->GetAttackGoal(1)) : nullptr;
-		if (MyKeeper && MyKeeper->IsHoldingBall())
+		if (Pc->IsKeeperControl())
 		{
-			Prompts.Add(bGamepad ? TEXT("A  THROW OUT (aim: stick)") : TEXT("J  THROW OUT (aim: keys)"));
+			Prompts.Add(bGamepad ? TEXT("LS  move the keeper") : TEXT("WASD  move the keeper"));
+			Prompts.Add(bGamepad ? TEXT("A  THROW to the stick") : TEXT("J  THROW to the keys"));
+			Prompts.Add(bGamepad ? TEXT("X  CLEAR long") : TEXT("K  CLEAR long"));
 		}
 		else if (BallState->HasBall())
 		{

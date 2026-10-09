@@ -91,14 +91,6 @@ struct FSkateMovementTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.5"))
 	float StaminaRecoverTime = 4.f;
 
-	/** Defensive stance (an opponent carries the ball nearby, the stick points across it): the skater keeps its body
-	 *  square to the ball and steps where the stick points at up to this speed (cm/s), no glide, no carve. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Stance", meta = (ClampMin = "0"))
-	float StanceSpeed = 320.f;
-
-	/** Time constant (s) of a stance step: how quickly the feet follow the stick. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Stance", meta = (ClampMin = "0.02"))
-	float StanceTimeConstant = 0.15f;
 
 	/** Deke (B with the ball): a sideways cut at this speed (cm/s) for this long (s) - about a metre of ice. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Deke", meta = (ClampMin = "0"))
@@ -940,9 +932,9 @@ struct FSkateKeeperTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float HoldTime = 1.0f;
 
-	/** The player's keeper waits for A up to this long (s) and throws to the teammate the stick points at. */
+	/** The player's keeper (under the player's control while it holds the ball) throws by itself after this long (s). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
-	float PlayerHoldTime = 5.f;
+	float PlayerHoldTime = 6.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float ThrowSpeed = 1100.f;

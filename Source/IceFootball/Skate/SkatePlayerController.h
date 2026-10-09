@@ -16,15 +16,16 @@
 //   D-pad L / R  previous / next preset     1 / 2 / 3 (direct)
 //   D-pad Down   FPS cap 0/30/60/120        F3
 //   (keys only)  ball interaction on/off    F4
-//   LB           switch: next teammate by distance to the ball   Q
+//   LB           switch to the teammate nearest the ball; again within a second: the next one out   Q
 //   Right stick  flick: switch to the teammate that way
-//   A            (own keeper holds the ball) throw it out where the stick points
+//   (own keeper holds the ball: the player IS the keeper - stick moves it, A throws to the teammate
+//    the stick points at, X clears it long along the stick, Y = A)
 //
 // Up to three skaters on the team, all played by this controller: the input drives the ACTIVE skater,
 // the others get AI input (FSkateSkaterAI: chase, support, defend, mark; the same AI drives the opponents;
-// fetch a loose ball / hold the ball). Control switches with LB / Q (next by distance to the ball) or a flick of
-// the right stick (the teammate that way), and automatically to the teammate every pass is played to, to a
-// teammate that just got the ball and to the nearest defender when an opponent gets the ball.
+// fetch a loose ball / hold the ball). Control switches with LB / Q (nearest to the ball, then the next one out)
+// or a flick of the right stick (the teammate that way), and automatically only to the teammate a pass is played
+// to and to a teammate that just got the ball: in defence the player chooses, nothing switches by itself.
 //
 // The stick is read raw; ASkateCharacter applies the radial dead zone and response curve,
 // then projects it onto the ice relative to the fixed camera yaw. No input smoothing.
@@ -60,6 +61,7 @@ public:
 
 	/** The skater the player controls right now (the possessed pawn or the teammate). */
 	ASkateCharacter* GetSkater() const;
+	bool IsKeeperControl() const { return bKeeperControl; }
 	/** Both team skaters (slot order). */
 	const TArray<TWeakObjectPtr<ASkateCharacter>>& GetTeam() const { return Team; }
 	/** Last AI decision of the not-controlled teammate (debug HUD). */
@@ -180,8 +182,11 @@ private:
 	FVector2D RightStickValue = FVector2D::ZeroVector;
 	/** The right stick is past the flick threshold: one switch per flick. */
 	bool bRightFlicked = false;
-	/** The opponent that carried the ball last frame: a change of carrier lets the nearest defender take over. */
-	TWeakObjectPtr<const ASkateCharacter> LastOpponentCarrier;
+	/** LB: the teammates by distance to the ball at the first press (without the one left), the rank the presses reached. */
+	TArray<int32> SwitchOrder;
+	int32 SwitchRank = 0;
+	/** The own keeper holds the ball and the player drives it (stick, A, X); the skaters are all AI meanwhile. */
+	bool bKeeperControl = false;
 	FVector2D KeysValue = FVector2D::ZeroVector;
 	bool bSlowHeld = false;
 	float BrakeValue = 0.f;

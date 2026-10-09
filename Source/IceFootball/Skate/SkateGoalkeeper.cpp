@@ -135,6 +135,13 @@ const ASkateCharacter* ASkateGoalkeeper::ThrowMate() const
 
 FVector2D ASkateGoalkeeper::ThrowTarget() const
 {
+	if (bThrowRequested && bClear)
+	{
+		// A clearance: 30 m along the aim, straight out of the goal with an idle stick.
+		const FSkateGoalFrame Goal = GoalFrame();
+		const FVector2D Dir = ThrowAim.SizeSquared() > 0.5f ? ThrowAim : FVector2D(Goal.Normal.X, Goal.Normal.Y);
+		return FVector2D(GetActorLocation()) + Dir * 3000.f;
+	}
 	if (const ASkateCharacter* Best = ThrowMate())
 	{
 		return FVector2D(Best->GetActorLocation());
@@ -185,10 +192,16 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 	}
 	const FVector2D Target = ThrowTarget();
 	FSkateKeeperTuning KT = Rink->GetKeeperTuning(Tuning, Team);
+	State.bPlayerHeld = bPlayerControlled;
+	State.HoldMove = FSkateVec2();
 	if (bPlayerControlled)
 	{
-		// The player's keeper holds the ball until A (a moment at least, so the catch is seen), at most PlayerHoldTime.
+		// The player's keeper holds the ball until A / X (a moment at least, so the catch is seen), at most
+		// PlayerHoldTime, and walks with it where the stick points (in goal terms: out of the line, to its right).
 		KT.HoldTime = bThrowRequested ? FMath::Min(0.3f, KT.HoldTime) : KT.PlayerHoldTime;
+		const FSkateVec2 Right = Goal.Right();
+		State.HoldMove = FSkateVec2(static_cast<float>(PlayerMove.X) * Goal.Normal.X + static_cast<float>(PlayerMove.Y) * Goal.Normal.Y,
+			static_cast<float>(PlayerMove.X) * Right.X + static_cast<float>(PlayerMove.Y) * Right.Y) * KT.MaxShuffleSpeed;
 	}
 	const FSkateKeeperOutput Out = FSkateKeeper::Update(KT, Goal, KeeperBall, FSkateVec2(static_cast<float>(Target.X), static_cast<float>(Target.Y)),
 		DeltaSeconds, State);
@@ -210,11 +223,18 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 			break;
 		case ESkateKeeperAction::Release:
 			Ball->ClearHolder(this);
+			if (bThrowRequested && bClear)
+			{
+				// A clearance: hard and a little lifted, to nobody in particular.
+				Ball->ReleaseHold(ToVector(Out.BallPosition), ToVector(Out.BallVelocity) * 1.8f + FVector(0.f, 0.f, 150.f), this, Team, nullptr);
+			}
+			else
 			{
 				const ASkateCharacter* Mate = ThrowMate();
 				Ball->ReleaseHold(ToVector(Out.BallPosition), ToVector(Out.BallVelocity), this, Team, Mate ? Mate->GetBallControl() : nullptr);
-				bThrowRequested = false;
 			}
+			bThrowRequested = false;
+			bClear = false;
 			break;
 		default:
 			break;
