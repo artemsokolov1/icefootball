@@ -95,7 +95,7 @@ struct FSkateArenaLayout
 	float PeriodBreak = 3.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
-	float GoalPause = 2.5f;
+	float GoalPause = 2.0f;
 
 	/** A series is won with this many match wins (a draw counts for nobody); the bots get a little better with each of
 	 *  the player's wins. 0 = no series, every match stands alone. */

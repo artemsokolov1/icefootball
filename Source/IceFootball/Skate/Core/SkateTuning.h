@@ -86,10 +86,19 @@ struct FSkateMovementTuning
 	/** Sprint stamina: seconds of full boost in the tank, seconds of rest to refill it. An empty tank gives no boost
 	 *  until a third of it is back (no flicker at the edge). The same rule applies to the bots. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.5"))
-	float StaminaTime = 4.f;
+	float StaminaTime = 8.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Thrust", meta = (ClampMin = "0.5"))
-	float StaminaRecoverTime = 6.f;
+	float StaminaRecoverTime = 4.f;
+
+	/** Defensive stance (an opponent carries the ball nearby, the stick points across it): the skater keeps its body
+	 *  square to the ball and steps where the stick points at up to this speed (cm/s), no glide, no carve. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Stance", meta = (ClampMin = "0"))
+	float StanceSpeed = 320.f;
+
+	/** Time constant (s) of a stance step: how quickly the feet follow the stick. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Stance", meta = (ClampMin = "0.02"))
+	float StanceTimeConstant = 0.15f;
 
 	/** Deke (B with the ball): a sideways cut at this speed (cm/s) for this long (s) - about a metre of ice. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Deke", meta = (ClampMin = "0"))
@@ -440,17 +449,22 @@ struct FSkateBallControlTuning
 
 	/** Pass (A) ball speed (cm/s) for a quick tap - already a firm pass. Hold A to charge up to PassMaxSpeed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float PushSpeed = 1400.f;
+	float PushSpeed = 1200.f;
 
 	/** A pass (A) always goes to the teammate, led to where it will be, and is played just fast enough to get there
-	 *  at this speed (cm/s) given the ball's damping and rolling resistance. The charge adds pace on top. */
+	 *  at this speed (cm/s) given the ball's damping and rolling resistance. The charge adds up to half on top. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float PassArriveSpeed = 800.f;
+	float PassArriveSpeed = 750.f;
 
-	/** A deflected stick picks the teammate within this angle (deg) of it; none there - the pass goes where the stick
-	 *  points (off the boards, into space). An idle stick passes to the nearest teammate. */
+	/** How much of the teammate's run the pass leads (1 = to where it will be when the ball lands; less keeps the ball
+	 *  playable when the teammate slows down). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "1"))
+	float PassLead = 0.6f;
+
+	/** A deflected stick picks the teammate within this angle (deg) of it (nearer ones first); none there - the pass
+	 *  goes where the stick points (off the boards, into space). An idle stick passes to the nearest teammate. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "180"))
-	float PassAssistAngle = 50.f;
+	float PassAssistAngle = 60.f;
 
 	/** With a pass on its way to this skater, a released A / X waits this long (s) for the ball: a one-touch pass or shot. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "3"))
@@ -458,7 +472,7 @@ struct FSkateBallControlTuning
 
 	/** Through pass (Y): played this far (cm) ahead of the teammate towards the goal, arriving at ThroughArriveSpeed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float ThroughLead = 700.f;
+	float ThroughLead = 500.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
 	float ThroughArriveSpeed = 650.f;
@@ -473,7 +487,7 @@ struct FSkateBallControlTuning
 
 	/** Fraction of the skater's speed along the push direction added to the push. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "2"))
-	float PushCarry = 0.6f;
+	float PushCarry = 0.3f;
 
 	/** Max angle (deg) between the push direction and the physical contact direction. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "90"))
@@ -922,9 +936,13 @@ struct FSkateKeeperTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float ParryLift = 220.f;
 
-	/** A caught ball is held this long (s), then rolled out to the controlled skater at ThrowSpeed (cm/s). */
+	/** A caught ball is held this long (s), then rolled out to the nearest teammate at ThrowSpeed (cm/s). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float HoldTime = 1.0f;
+
+	/** The player's keeper waits for A up to this long (s) and throws to the teammate the stick points at. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
+	float PlayerHoldTime = 5.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Keeper", meta = (ClampMin = "0"))
 	float ThrowSpeed = 1100.f;

@@ -258,10 +258,12 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		}
 		Query.bThroughTargetValid = bThroughTargetValid;
 		Query.ThroughTargetPos = FSkateVec2(static_cast<float>(ThroughTarget.X), static_cast<float>(ThroughTarget.Y));
-		// A pass goes to the teammate the stick points at (within PassAssistAngle), to the nearest one with an idle
-		// stick, and where the stick points when no teammate is that way (off the boards, into space).
+		// A pass goes to the teammate the stick points at (within PassAssistAngle; of those, the near one on the aim
+		// beats the far one dead on it), to the nearest one with an idle stick, and where the stick points when no
+		// teammate is that way (off the boards, into space).
 		const bool bAimed = Query.StickMag > 0.3f;
-		float BestScore = bAimed ? -FMath::Cos(FMath::DegreesToRadians(ControlTuning.PassAssistAngle)) : TNumericLimits<float>::Max();
+		const float MinCos = FMath::Cos(FMath::DegreesToRadians(ControlTuning.PassAssistAngle));
+		float BestScore = TNumericLimits<float>::Max();
 		PassMate = nullptr;
 		for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
 		{
@@ -270,7 +272,12 @@ void USkateBallControlComponent::TickComponent(float DeltaTime, ELevelTick TickT
 				continue;
 			}
 			const FVector2D ToMate(It->GetActorLocation() - SkaterLoc);
-			const float Score = bAimed ? -static_cast<float>(ToMate.GetSafeNormal() | FVector2D(Query.StickDir.X, Query.StickDir.Y)) : static_cast<float>(ToMate.Size());
+			const float Cos = bAimed ? static_cast<float>(ToMate.GetSafeNormal() | FVector2D(Query.StickDir.X, Query.StickDir.Y)) : 1.f;
+			if (Cos < MinCos)
+			{
+				continue;
+			}
+			const float Score = static_cast<float>(ToMate.Size()) * (1.5f - Cos);
 			if (Score < BestScore)
 			{
 				BestScore = Score;

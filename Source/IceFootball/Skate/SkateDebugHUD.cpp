@@ -213,7 +213,12 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 	{
 		const bool bGamepad = Pc->WasLastInputGamepad();
 		TArray<FString> Prompts;
-		if (BallState->HasBall())
+		const ASkateGoalkeeper* MyKeeper = Arena ? Arena->GetGoalkeeper(Arena->GetAttackGoal(1)) : nullptr;
+		if (MyKeeper && MyKeeper->IsHoldingBall())
+		{
+			Prompts.Add(bGamepad ? TEXT("A  THROW OUT (aim: stick)") : TEXT("J  THROW OUT (aim: keys)"));
+		}
+		else if (BallState->HasBall())
 		{
 			if (Pc->GetTeam().Num() > 1)
 			{
@@ -239,7 +244,7 @@ void ASkateDebugHUD::DrawAlwaysOn(ASkateCharacter* Skater, ASkateArena* Arena)
 		float X = Canvas->ClipX * 0.5f - 90.f * Prompts.Num();
 		for (const FString& Prompt : Prompts)
 		{
-			const bool bTake = Prompt.Contains(TEXT("TAKE")) || Prompt.Contains(TEXT("DEKE"));
+			const bool bTake = Prompt.Contains(TEXT("TAKE")) || Prompt.Contains(TEXT("DEKE")) || Prompt.Contains(TEXT("THROW"));
 			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.5f), X - 6.f, Canvas->ClipY - 44.f, 176.f, 24.f);
 			DrawText(Prompt, bTake ? FLinearColor(1.f, 0.9f, 0.2f) : Info, X, Canvas->ClipY - 40.f, GEngine->GetSmallFont(), TextScale);
 			X += 180.f;

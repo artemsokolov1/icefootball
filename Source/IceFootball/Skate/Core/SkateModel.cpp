@@ -158,6 +158,33 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 	const float Brake = SkateMath::Clamp01(Input.Brake);
 	const float Boost = SkateMath::Clamp01(Input.Boost);
 
+	// ---- 0. Defensive stance: body square to the play, feet stepping where the stick points ----
+	// A defender facing the carrier does not turn and skate off to the side: it shuffles across. Coming in fast
+	// the normal skating keeps going until the speed is off.
+	if (Input.bStance && Speed < Tuning.StanceSpeed * 1.3f && State.DekeLeft <= 0.f)
+	{
+		State.bReverseStop = false;
+		State.TurnSign = 0.f;
+		State.bPrevStick = bHasStick;
+		if (bHasStick)
+		{
+			State.PrevStickDir = StickDir;
+		}
+		const FSkateVec2 Face = Input.FaceDir.SizeSquared() > 0.25f ? Input.FaceDir.GetSafeNormal() : State.Heading;
+		State.Heading = State.Heading.RotatedTowards(Face, Tuning.TurnRateLowSpeed * SkateMath::DegToRad * H).GetSafeNormal();
+		const FSkateVec2 Target = bHasStick ? StickDir * (Mag * Tuning.StanceSpeed * (1.f - Brake)) : FSkateVec2();
+		const FSkateVec2 Dv = (Target - Vel) * SkateMath::DecayAlpha(1.f / SkateMath::Max(Tuning.StanceTimeConstant, 0.01f), H);
+		Vel += Dv;
+		if (!bHasStick && Vel.Size() < Tuning.StopSnapSpeed)
+		{
+			Vel = FSkateVec2();
+		}
+		Acc.Push += bHasStick ? Mag : 0.f;
+		Acc.Thrust += Dv.Size();
+		State.Velocity = Vel;
+		return;
+	}
+
 	// ---- 1. Reverse-stop intent: stick FLICKED against travel at speed. Hysteresis avoids flicker. ----
 	// A flick = the stick came from neutral or jumped by a large angle. Sweeping it around the rim is a turn.
 	const float StickVsTravel = bHasStick ? StickDir.Dot(TravelDir) : 1.f;

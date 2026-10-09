@@ -160,8 +160,9 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 	MoveInput.Magnitude = LastStick.Magnitude;
 	MoveInput.Brake = LastBrake;
 	MoveInput.Boost = LastBoost;
-	// Defending: with an opponent carrying the ball nearby, a stick that leads away from it skates backwards,
-	// so the skater keeps facing the play. Anywhere else the stick is plain forward skating.
+	// Defending: with an opponent carrying the ball nearby, a stick that leads away from it skates backwards and a
+	// stick across it steps sideways in a stance (body square to the ball), so the skater keeps facing the play and
+	// is not skated round while its blades turn. A stick at the ball is plain forward skating, as anywhere else.
 	if (BallControl && !BallControl->HasBall() && LastStick.Magnitude > 0.3f)
 	{
 		if (const ASkateBall* Ball = BallControl->GetBall())
@@ -170,8 +171,11 @@ void ASkateCharacter::ApplyFrameInput(const FSkateFrameInput& Input)
 			const ASkateCharacter* Carrier = Holder ? Cast<ASkateCharacter>(Holder->GetOwner()) : nullptr;
 			const FVector Delta = Ball->GetActorLocation() - GetActorLocation();
 			const FVector ToBall = Delta.GetSafeNormal2D();
-			MoveInput.bBackward = Carrier && Carrier->GetTeam() != Team && Delta.Size2D() < 1200.f
-				&& LastStick.Direction.X * ToBall.X + LastStick.Direction.Y * ToBall.Y < -0.17f; // > 100 deg away
+			const bool bDefending = Carrier && Carrier->GetTeam() != Team && Delta.Size2D() < 1200.f;
+			const float Toward = static_cast<float>(LastStick.Direction.X * ToBall.X + LastStick.Direction.Y * ToBall.Y);
+			MoveInput.bBackward = bDefending && Toward < -0.17f; // > 100 deg away
+			MoveInput.bStance = bDefending && !MoveInput.bBackward && Toward < 0.64f; // 50..100 deg off the ball
+			MoveInput.FaceDir = FSkateVec2(static_cast<float>(ToBall.X), static_cast<float>(ToBall.Y));
 		}
 	}
 	SkateMovement->SetSkateInput(IsStunned() ? FSkateMoveInput() : MoveInput);

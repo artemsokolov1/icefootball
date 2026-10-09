@@ -17,7 +17,9 @@
 #include "Skate/SkateBallControlComponent.h"
 #include "Skate/SkateCameraRig.h"
 #include "Skate/SkateCharacter.h"
+#include "Skate/SkateGoalkeeper.h"
 #include "Skate/SkateMovementComponent.h"
+#include "Skate/Core/SkateInput.h"
 
 namespace SkatePlayerControllerDetail
 {
@@ -59,6 +61,9 @@ void ASkatePlayerController::BuildInputMappings()
 	// ---- Movement ----
 	IA_Stick = MakeAction(TEXT("IA_Skate_Stick"), EInputActionValueType::Axis2D);
 	Imc->MapKey(IA_Stick, EKeys::Gamepad_Left2D); // raw: radial dead zone is applied in code
+
+	IA_RightStick = MakeAction(TEXT("IA_Skate_RightStick"), EInputActionValueType::Axis2D);
+	Imc->MapKey(IA_RightStick, EKeys::Gamepad_Right2D); // a flick switches to the teammate that way
 
 	IA_Keys = MakeAction(TEXT("IA_Skate_Keys"), EInputActionValueType::Axis2D);
 	auto MapDirection = [Imc, this](const FKey& Key, bool bToY, bool bNegate)
@@ -170,6 +175,8 @@ void ASkatePlayerController::SetupInputComponent()
 
 	Eic->BindAction(IA_Stick, ETriggerEvent::Triggered, this, &ASkatePlayerController::OnStick);
 	Eic->BindAction(IA_Stick, ETriggerEvent::Completed, this, &ASkatePlayerController::OnStickReleased);
+	Eic->BindAction(IA_RightStick, ETriggerEvent::Triggered, this, &ASkatePlayerController::OnRightStick);
+	Eic->BindAction(IA_RightStick, ETriggerEvent::Completed, this, &ASkatePlayerController::OnRightStickReleased);
 	Eic->BindAction(IA_Keys, ETriggerEvent::Triggered, this, &ASkatePlayerController::OnKeys);
 	Eic->BindAction(IA_Keys, ETriggerEvent::Completed, this, &ASkatePlayerController::OnKeysReleased);
 	Eic->BindAction(IA_Slow, ETriggerEvent::Started, this, &ASkatePlayerController::OnSlowPressed);
@@ -411,13 +418,23 @@ void ASkatePlayerController::UpdateAutoSwitch()
 			}
 		}
 	}
-	// An opponent has the ball: the player is always the skater nearest to it (the defender that matters).
-	if (Target == INDEX_NONE && bAutoSwitch && TimeSinceManualSwitch > 2.f && CachedArena.IsValid() && CachedArena->GetBall())
+	// An opponent has the ball: when it gets it (a new carrier) the nearest defender takes over; while it keeps it the
+	// player's choice stands unless the active skater is clearly out of the play (5 m further from the ball than a
+	// teammate). Nothing changes under the player's hands for a while after a switch by hand.
+	const ASkateBall* OpponentBall = CachedArena.IsValid() ? CachedArena->GetBall() : nullptr;
+	const USkateBallControlComponent* OpponentHolder = OpponentBall ? Cast<USkateBallControlComponent>(OpponentBall->GetHolder()) : nullptr;
+	const ASkateCharacter* OpponentCarrier = OpponentHolder ? Cast<ASkateCharacter>(OpponentHolder->GetOwner()) : nullptr;
+	if (OpponentCarrier && OpponentCarrier->GetTeam() == 0)
 	{
-		const ASkateBall* Ball = CachedArena->GetBall();
-		const USkateBallControlComponent* HolderComp = Cast<USkateBallControlComponent>(Ball->GetHolder());
-		const ASkateCharacter* Carrier = HolderComp ? Cast<ASkateCharacter>(HolderComp->GetOwner()) : nullptr;
-		if (Carrier && Carrier->GetTeam() != 0)
+		OpponentCarrier = nullptr;
+	}
+	const bool bNewCarrier = OpponentCarrier != LastOpponentCarrier.Get();
+	LastOpponentCarrier = OpponentCarrier;
+	if (Target == INDEX_NONE && bAutoSwitch && TimeSinceManualSwitch > 3.f && OpponentBall)
+	{
+		const ASkateBall* Ball = OpponentBall;
+		const ASkateCharacter* Carrier = OpponentCarrier;
+		if (Carrier)
 		{
 			int32 Nearest = INDEX_NONE;
 			float NearestDist = TNumericLimits<float>::Max();
@@ -436,7 +453,7 @@ void ASkatePlayerController::UpdateAutoSwitch()
 					ActiveDist = Dist;
 				}
 			}
-			if (Nearest != INDEX_NONE && Nearest != ActiveIndex && NearestDist < ActiveDist - 150.f) // hysteresis: no flip-flop
+			if (Nearest != INDEX_NONE && Nearest != ActiveIndex && NearestDist < ActiveDist - (bNewCarrier ? 150.f : 500.f)) // hysteresis: no flip-flop
 			{
 				Target = Nearest;
 			}
@@ -724,6 +741,44 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 	UpdateAutoSwitch();
 	UpdateThroughTargets();
 
+	// A flick of the right stick: the teammate that way (in camera terms, like the left stick), one switch per flick.
+	if (const ASkateCharacter* Active = bBotsVsBots ? nullptr : GetSkater())
+	{
+		const float Mag = static_cast<float>(RightStickValue.Size());
+		if (Mag > 0.6f && !bRightFlicked)
+		{
+			bRightFlicked = true;
+			const FSkateStickResult Aim = SkateInput::ShapeStickWorld(static_cast<float>(RightStickValue.X), static_cast<float>(RightStickValue.Y),
+				FMath::DegreesToRadians(CameraRig ? CameraRig->GetControlYaw() : 0.f), Active->GetActiveTuning().Input);
+			int32 Best = INDEX_NONE;
+			float BestDot = 0.3f;
+			for (int32 Index = 0; Index < Team.Num(); ++Index)
+			{
+				const ASkateCharacter* Member = Team[Index].Get();
+				if (!Member || Index == ActiveIndex)
+				{
+					continue;
+				}
+				const FVector To = (Member->GetActorLocation() - Active->GetActorLocation()).GetSafeNormal2D();
+				const float Dot = static_cast<float>(To.X) * Aim.Direction.X + static_cast<float>(To.Y) * Aim.Direction.Y;
+				if (Dot > BestDot)
+				{
+					BestDot = Dot;
+					Best = Index;
+				}
+			}
+			if (Best != INDEX_NONE)
+			{
+				SwitchTo(Best, /*bLatchStick*/ false);
+				TimeSinceManualSwitch = 0.f;
+			}
+		}
+		else if (Mag < 0.4f)
+		{
+			bRightFlicked = false;
+		}
+	}
+
 	ASkateCharacter* Skater = GetSkater();
 	if (Skater)
 	{
@@ -781,6 +836,21 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 			FrameInput.BrakeRaw = 1.f;
 		}
 		LastRawStick = FrameInput.RawStick;
+		// The own keeper has the ball: it waits for A and throws to the teammate the stick points at (the nearest one
+		// with an idle stick); the press does not reach the skater (no swing at nothing).
+		ASkateGoalkeeper* MyKeeper = CachedArena.IsValid() ? CachedArena->GetGoalkeeper(CachedArena->GetAttackGoal(1)) : nullptr;
+		if (MyKeeper)
+		{
+			MyKeeper->SetPlayerControlled(!bBotsVsBots);
+			if (MyKeeper->IsHoldingBall() && FrameInput.bPushPressed)
+			{
+				FrameInput.bPushPressed = false;
+				FrameInput.bPushReleased = false;
+				const FSkateStickResult Aim = SkateInput::ShapeStickWorld(static_cast<float>(FrameInput.RawStick.X), static_cast<float>(FrameInput.RawStick.Y),
+					FMath::DegreesToRadians(FrameInput.CameraYawDeg), Skater->GetActiveTuning().Input);
+				MyKeeper->RequestThrow(Aim.Magnitude > 0.3f ? FVector2D(Aim.Direction.X, Aim.Direction.Y) : FVector2D::ZeroVector);
+			}
+		}
 		// A pass on its way to this skater: the AI keeps it on the ball's line until the stick is re-aimed or the
 		// ball arrives, whatever the buttons do (X winds up a one-timer meanwhile).
 		const ASkateBall* Ball = CachedArena.IsValid() ? CachedArena->GetBall() : nullptr;
@@ -788,10 +858,12 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 		if (bStickLatched)
 		{
 			LatchTime += DeltaTime;
+			// The stick wins back soon in any case (half a second at most): the player must never watch its skater
+			// being steered by the AI for the length of a pass.
 			const bool bReleased = FrameInput.RawStick.Size() < 0.3;
-			const bool bMoved = !bReleased && FVector2D::DotProduct(FrameInput.RawStick.GetSafeNormal(), LatchStick.GetSafeNormal()) < 0.5; // > 60 deg
+			const bool bMoved = !bReleased && FVector2D::DotProduct(FrameInput.RawStick.GetSafeNormal(), LatchStick.GetSafeNormal()) < 0.866; // > 30 deg
 			const bool bButton = !bPassInFlight && (bPushEdge || bKickPressEdge || bThroughEdge);
-			if (bReleased || bMoved || bButton || (!bPassInFlight && LatchTime > 0.6f))
+			if (bReleased || bMoved || bButton || LatchTime > 0.5f)
 			{
 				bStickLatched = false;
 			}
@@ -824,7 +896,7 @@ void ASkatePlayerController::PlayerTick(float DeltaTime)
 			}
 			if (bScored)
 			{
-				PlayDynamicForceFeedback(Arena->GetLastGoalTeam() == 0 ? 0.9f : 0.5f, 0.6f, true, true, true, true);
+				PlayDynamicForceFeedback(Arena->GetLastGoalTeam() == 0 ? 0.9f : 0.5f, 0.45f, true, true, true, true);
 			}
 		}
 		if (CameraRig)
@@ -852,6 +924,17 @@ void ASkatePlayerController::OnStick(const FInputActionValue& Value)
 void ASkatePlayerController::OnStickReleased(const FInputActionValue& Value)
 {
 	StickValue = FVector2D::ZeroVector;
+}
+
+void ASkatePlayerController::OnRightStick(const FInputActionValue& Value)
+{
+	RightStickValue = Value.Get<FVector2D>();
+	bLastInputGamepad = true;
+}
+
+void ASkatePlayerController::OnRightStickReleased(const FInputActionValue& Value)
+{
+	RightStickValue = FVector2D::ZeroVector;
 }
 
 void ASkatePlayerController::OnKeys(const FInputActionValue& Value)
@@ -1031,25 +1114,25 @@ void ASkatePlayerController::OnCycleFpsCap(const FInputActionValue& Value)
 
 void ASkatePlayerController::OnSwitchSkater(const FInputActionValue& Value)
 {
-	if (Team.Num() > 1)
+	// By hand: the teammates in order of distance to the ball, the next one after the active skater (FIFA-style: from
+	// the nearest, a press more reaches the defender at the back); the automatic rules stay out of the way for a while.
+	TArray<int32> Order;
+	for (int32 Index = 0; Index < Team.Num(); ++Index)
 	{
-		// By hand: the other skater nearest to the ball (FIFA-style), and the automatic rules stay out of the way for a while.
-		int32 Next = (ActiveIndex + 1) % Team.Num();
-		if (const ASkateBall* Ball = CachedArena.IsValid() ? CachedArena->GetBall() : nullptr)
+		if (Team[Index].IsValid())
 		{
-			float Best = TNumericLimits<float>::Max();
-			for (int32 Index = 0; Index < Team.Num(); ++Index)
-			{
-				const ASkateCharacter* Member = Team[Index].Get();
-				const float Dist = Member ? static_cast<float>(FVector::Dist2D(Member->GetActorLocation(), Ball->GetActorLocation())) : Best;
-				if (Index != ActiveIndex && Member && Dist < Best)
-				{
-					Best = Dist;
-					Next = Index;
-				}
-			}
+			Order.Add(Index);
 		}
-		SwitchTo(Next, /*bLatchStick*/ false);
+	}
+	if (const ASkateBall* Ball = CachedArena.IsValid() ? CachedArena->GetBall() : nullptr)
+	{
+		const FVector BallLoc = Ball->GetActorLocation();
+		Order.Sort([&](int32 A, int32 B) { return FVector::Dist2D(Team[A]->GetActorLocation(), BallLoc) < FVector::Dist2D(Team[B]->GetActorLocation(), BallLoc); });
+	}
+	const int32 Rank = Order.IndexOfByKey(ActiveIndex);
+	if (Order.Num() > 1 && Rank != INDEX_NONE)
+	{
+		SwitchTo(Order[(Rank + 1) % Order.Num()], /*bLatchStick*/ false);
 		TimeSinceManualSwitch = 0.f;
 	}
 }

@@ -488,7 +488,8 @@ FSkateBallImpulse FSkateBallControl::Update(const FSkateBallControlTuning& Tunin
 
 	// A carried ball is at the feet by definition: push / kick are in reach once it has swung round to the front
 	// (a pass trapped at the heels orbits there within ~0.2 s; a kick before that would go sideways or back).
-	const bool bActionReach = !Query.bBallHeldByOther && !Query.bStunned
+	// The ball just played is not played again while it leaves the feet: a second tap of A / X does nothing.
+	const bool bActionReach = !Query.bBallHeldByOther && !Query.bStunned && (Poss.bPossessed || State.TimeSinceImpulse >= Tuning.NoTouchAfterAction)
 		&& ((Poss.bPossessed && OutReport.AngleFromHeadingDeg <= 45.f) || OutReport.Reason == ESkateContactReason::Reachable || OutReport.Reason == ESkateContactReason::ActionReachOnly);
 	// One impulse per ball per frame overall, also across skaters and the keeper.
 	const bool bGapOk = State.TimeSinceImpulse >= MinImpulseGap && Query.BallTimeSinceImpulse >= MinImpulseGap;
@@ -641,10 +642,10 @@ FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tun
 			Launch = SkateBallFlight::SpeedFor(Dist, Tuning.PassArriveSpeed, Query.BallDamping, Query.BallRollingResistance, MaxSpeed);
 			float Flight = SkateBallFlight::TimeFor(Launch, Dist, Query.BallDamping, Query.BallRollingResistance);
 			if (Flight < 0.f) { Flight = SkateBallFlight::StopTime(Launch, Query.BallDamping, Query.BallRollingResistance); }
-			Target = Query.PassTargetPos + Query.PassTargetVel * Flight;
+			Target = Query.PassTargetPos + Query.PassTargetVel * (Flight * Tuning.PassLead);
 		}
 		Dir = (Target - Query.BallPos.XY()).GetSafeNormal(Normal);
-		Speed = SkateMath::Lerp(Launch, MaxSpeed, Impulse.Power);
+		Speed = SkateMath::Min(Launch * (1.f + 0.5f * Impulse.Power), MaxSpeed); // a held A adds pace, never a bomb at a teammate
 	}
 	else
 	{
@@ -662,7 +663,7 @@ FSkateBallImpulse FSkateBallControl::MakeThroughPass(const FSkateBallControlTuni
 {
 	if (!Query.bThroughTargetValid)
 	{
-		return MakePush(Tuning, Query, 1.f); // nobody to play through: a firm pass along the stick
+		return MakePush(Tuning, Query, 0.5f); // nobody to play through: a firm pass along the stick
 	}
 	FSkateBallImpulse Impulse;
 	Impulse.Kind = ESkateImpulseKind::Push;

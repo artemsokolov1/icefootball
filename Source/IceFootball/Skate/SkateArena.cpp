@@ -681,8 +681,28 @@ void ASkateArena::BuildGoal(float Sign)
 	AddBox(FVector(X(LineX + Depth * 0.5f), Y1 + NetThickness, H * 0.5f), FVector(Depth, NetThickness, H), NetColor, NetMaterial);
 	AddBox(FVector(X(LineX + Depth * 0.5f), 0.f, H + NetThickness), FVector(Depth, Layout.GoalWidth, NetThickness), NetColor, NetMaterial);
 
-	// Crease in front, trapezoid behind (goal line to the end boards).
-	AddMarkRect(FVector2D(X(LineX - 90.f), 0.f), FVector2D(180.f, Layout.GoalWidth), FLinearColor(0.35f, 0.55f, 0.85f));
+	// Crease in front: a half-disc as in hockey (blue fill in slices, red outline), trapezoid behind (goal line to the end boards).
+	{
+		constexpr float CreaseRadius = 180.f;
+		constexpr int32 Slices = 18;
+		constexpr int32 ArcSegments = 24;
+		const FVector2D CreaseCentre(X(LineX), 0.f);
+		for (int32 Index = 0; Index < Slices; ++Index)
+		{
+			const float Out = (Index + 0.5f) * CreaseRadius / Slices; // goal line to the slice's middle
+			const float Half = FMath::Sqrt(FMath::Max(CreaseRadius * CreaseRadius - Out * Out, 1.f));
+			AddMarkRect(FVector2D(X(LineX - Out), 0.f), FVector2D(CreaseRadius / Slices, 2.f * Half), FLinearColor(0.35f, 0.55f, 0.85f));
+		}
+		for (int32 Index = 0; Index < ArcSegments; ++Index)
+		{
+			const float T0 = -UE_HALF_PI + UE_PI * Index / ArcSegments;
+			const float T1 = -UE_HALF_PI + UE_PI * (Index + 1) / ArcSegments;
+			const FVector2D P0 = CreaseCentre + FVector2D(-Sign * FMath::Cos(T0), FMath::Sin(T0)) * CreaseRadius;
+			const FVector2D P1 = CreaseCentre + FVector2D(-Sign * FMath::Cos(T1), FMath::Sin(T1)) * CreaseRadius;
+			const FVector2D Ext = (P1 - P0) * 0.03f;
+			AddMarkLine(P0 - Ext, P1 + Ext, 5.f, RedLine);
+		}
+	}
 	const float BoardX = Layout.RinkSize.X * 0.5f;
 	AddMarkLine(FVector2D(X(LineX), -TrapezoidNearHalf), FVector2D(X(BoardX), -TrapezoidFarHalf), 5.f, RedLine);
 	AddMarkLine(FVector2D(X(LineX), TrapezoidNearHalf), FVector2D(X(BoardX), TrapezoidFarHalf), 5.f, RedLine);
@@ -758,6 +778,12 @@ void ASkateArena::Tick(float DeltaSeconds)
 		return;
 	}
 
+	// The goal moment: slow motion for GoalSlowMoTime real seconds (it runs into the pause: checked before it).
+	if (SlowMoRealEnd >= 0.0 && GetWorld()->GetRealTimeSeconds() >= SlowMoRealEnd)
+	{
+		UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.f);
+		SlowMoRealEnd = -1.0;
+	}
 	// Match clock, the pause after a goal, the face-off countdown.
 	TimeSinceDrop += DeltaSeconds;
 	if (GoalPauseLeft >= 0.f)
@@ -781,12 +807,6 @@ void ASkateArena::Tick(float DeltaSeconds)
 			TimeSinceDrop = 0.f;
 		}
 		return;
-	}
-	// The goal moment: slow motion for GoalSlowMoTime real seconds, then the clock runs on at full speed.
-	if (SlowMoRealEnd >= 0.0 && GetWorld()->GetRealTimeSeconds() >= SlowMoRealEnd)
-	{
-		UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.f);
-		SlowMoRealEnd = -1.0;
 	}
 	if (!bMatchOver)
 	{

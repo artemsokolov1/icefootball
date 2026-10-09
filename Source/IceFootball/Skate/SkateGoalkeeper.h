@@ -35,6 +35,12 @@ public:
 	/** Back to the middle of the goal, ball released (scene reset). */
 	void ResetKeeper();
 
+	/** The player's keeper: a caught ball waits for A (up to PlayerHoldTime) instead of rolling out by itself. */
+	void SetPlayerControlled(bool bIn) { bPlayerControlled = bIn; }
+	bool IsHoldingBall() const { return State.bHolding; }
+	/** Throw the held ball out now, to the teammate the aim points at (zero aim = the nearest). */
+	void RequestThrow(const FVector2D& Aim) { bThrowRequested = true; ThrowAim = Aim; }
+
 	const FSkateKeeperState& GetKeeperState() const { return State; }
 	int32 GetSaves() const { return State.Saves; }
 	ESkateKeeperAction GetLastAction() const { return State.LastAction; }
@@ -62,6 +68,9 @@ private:
 	int32 GoalIndex = 0;
 	int32 Team = 1;
 	FSkateKeeperState State;
+	bool bPlayerControlled = false;
+	bool bThrowRequested = false;
+	FVector2D ThrowAim = FVector2D::ZeroVector;
 	float Butterfly = 0.f;
 	bool bBuilt = false;
 	FVector HandLocal[2];

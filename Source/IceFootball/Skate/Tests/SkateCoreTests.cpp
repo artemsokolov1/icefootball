@@ -271,17 +271,52 @@ namespace SkateCoreTestsDetail
 		const FSkateTuning T = SkateTuningPresets::Make(ESkatePreset::Balanced);
 		FSkateSim Sim;
 		const FSkateVec2 Dir(1.f, 0.f);
-		float SpeedAt2 = 0.f, SpeedAt9 = 0.f, SpeedAfterRest = 0.f;
-		RunUntil(Sim, T.Movement, 60.f, 9.f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 1.f); },
-			[&](const FSkateSim& S) { if (S.Time >= 2.f && SpeedAt2 == 0.f) { SpeedAt2 = S.State.Velocity.Size(); } return false; });
-		SpeedAt9 = Sim.State.Velocity.Size();
-		const float StaminaAt9 = Sim.State.Stamina;
-		// Rest with the boost off (still skating), then sprint again.
-		RunUntil(Sim, T.Movement, 60.f, 3.f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 0.f); }, [](const FSkateSim&) { return false; });
+		const float Tank = T.Movement.StaminaTime;
+		float SpeedAt2 = 0.f, SpeedMid = 0.f, SpeedEnd = 0.f, SpeedAfterRest = 0.f;
+		RunUntil(Sim, T.Movement, 60.f, Tank + 4.f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 1.f); },
+			[&](const FSkateSim& S)
+			{
+				if (S.Time >= 2.f && SpeedAt2 == 0.f) { SpeedAt2 = S.State.Velocity.Size(); }
+				if (S.Time >= Tank - 1.f && SpeedMid == 0.f) { SpeedMid = S.State.Velocity.Size(); }
+				return false;
+			});
+		SpeedEnd = Sim.State.Velocity.Size();
+		const float StaminaEnd = Sim.State.Stamina;
+		// Rest with the boost off (still skating) for half the refill time, then sprint again.
+		RunUntil(Sim, T.Movement, 60.f, T.Movement.StaminaRecoverTime * 0.5f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 0.f); }, [](const FSkateSim&) { return false; });
 		RunUntil(Sim, T.Movement, 60.f, 1.5f, [&](float, const FSkateMoveState&) { return Stick(Dir, 1.f, 0.f, 1.f); }, [](const FSkateSim&) { return false; });
 		SpeedAfterRest = Sim.State.Velocity.Size();
-		R.bPassed = SpeedAt2 > 0.9f * T.Movement.BoostMaxSpeed && SpeedAt9 < T.Movement.MaxSpeed + 60.f && StaminaAt9 < 0.05f && SpeedAfterRest > 0.85f * T.Movement.BoostMaxSpeed;
-		R.Details = Fmt("RT held: %.0f cm/s at 2 s, %.0f cm/s at 9 s (stamina %.2f); 3 s rest then RT again: %.0f cm/s after 1.5 s", SpeedAt2, SpeedAt9, StaminaAt9, SpeedAfterRest);
+		R.bPassed = SpeedAt2 > 0.9f * T.Movement.BoostMaxSpeed && SpeedMid > 0.8f * T.Movement.BoostMaxSpeed && SpeedEnd < T.Movement.MaxSpeed + 60.f
+			&& StaminaEnd < 0.05f && SpeedAfterRest > 0.85f * T.Movement.BoostMaxSpeed;
+		R.Details = Fmt("RT held (tank %.0f s): %.0f cm/s at 2 s, %.0f cm/s a second before it is empty, %.0f cm/s 4 s after (stamina %.2f); %.0f s rest then RT again: %.0f cm/s after 1.5 s",
+			Tank, SpeedAt2, SpeedMid, SpeedEnd, StaminaEnd, T.Movement.StaminaRecoverTime * 0.5f, SpeedAfterRest);
+		Out.push_back(R);
+	}
+
+	void TestStance(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R("Move.StanceStepsAcross");
+		const FSkateTuning T = SkateTuningPresets::Make(ESkatePreset::Balanced);
+		FSkateSim Sim;
+		// A defender facing +X (the carrier) pushes the stick to +Y: it steps across, still facing +X, and stops when
+		// the stick is let go. Plain skating would turn the blades first and drift off in an arc.
+		float MinFace = 1.f;
+		auto Step = [&](const FSkateVec2& Dir, float Mag)
+		{
+			FSkateMoveInput In = Stick(Dir, Mag);
+			In.bStance = true;
+			In.FaceDir = FSkateVec2(1.f, 0.f);
+			return In;
+		};
+		RunUntil(Sim, T.Movement, 60.f, 0.6f, [&](float, const FSkateMoveState&) { return Step(FSkateVec2(0.f, 1.f), 1.f); },
+			[&](const FSkateSim& S) { MinFace = SkateMath::Min(MinFace, S.State.Heading.Dot(FSkateVec2(1.f, 0.f))); return false; });
+		const FSkateVec2 Vel = Sim.State.Velocity;
+		const float Across = Sim.Pos.Y;
+		RunUntil(Sim, T.Movement, 60.f, 0.6f, [&](float, const FSkateMoveState&) { return Step(FSkateVec2(), 0.f); }, [](const FSkateSim&) { return false; });
+		const float Drift = Sim.Pos.Y - Across;
+		R.bPassed = MinFace > 0.98f && Vel.Y > 0.9f * T.Movement.StanceSpeed && SkateMath::Abs(Vel.X) < 20.f && Across > 120.f && Drift < 60.f && Sim.State.Velocity.Size() < 1.f;
+		R.Details = Fmt("stance, stick across for 0.6 s: %.0f cm/s sideways (%.0f along), %.0f cm across, heading kept (min dot %.3f); stick let go: %.0f cm of drift, then %.1f cm/s",
+			Vel.Y, Vel.X, Across, MinFace, Drift, Sim.State.Velocity.Size());
 		Out.push_back(R);
 	}
 
@@ -859,7 +894,7 @@ namespace SkateCoreTestsDetail
 			++Frame;
 		}
 		const float Gap = P.MinImpulseGap();
-		R.bPassed = P.MaxImpulsesInOneFrame <= 1 && Gap >= FSkateBallControl::MinImpulseGap - 1e-4f && P.Impulses.size() > 20;
+		R.bPassed = P.MaxImpulsesInOneFrame <= 1 && Gap >= FSkateBallControl::MinImpulseGap - 1e-4f && P.Impulses.size() > 8;
 		R.Details = Fmt("4 s, every trigger active every frame: %d impulses (touch %d push %d kick %d body %d), max per frame %d, min gap %.3fs (limit %.3fs)",
 			static_cast<int>(P.Impulses.size()), P.CountKind(ESkateImpulseKind::Touch), P.CountKind(ESkateImpulseKind::Push),
 			P.CountKind(ESkateImpulseKind::Kick), P.CountKind(ESkateImpulseKind::BodyBlock), P.MaxImpulsesInOneFrame, Gap, FSkateBallControl::MinImpulseGap);
@@ -1601,6 +1636,35 @@ namespace SkateCoreTestsDetail
 		Out.push_back(R);
 	}
 
+	void TestNoSecondTap(std::vector<FSkateTestResult>& Out)
+	{
+		FSkateTestResult R{ "Contact.SecondTapDoesNothing" };
+		const float Dt = 1.f / 60.f;
+		FPlaySim P = MakeCarryPlay(ESkatePreset::Balanced);
+		int Pushes[3] = { 0, 0, 0 };
+		float Speeds[3] = { 0.f, 0.f, 0.f };
+		// A tapped, tapped again 0.08 s later (the ball still at the feet, leaving), and once more 0.4 s later (gone).
+		const float Taps[3] = { 0.f, 0.08f, 0.5f };
+		const float Start = P.Skater.Time;
+		for (int Tap = 0; Tap < 3; ++Tap)
+		{
+			while (P.Skater.Time - Start < Taps[Tap] - 0.5f * Dt)
+			{
+				P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.2f), FSkateBallActionInput(), Dt);
+			}
+			FSkateBallActionInput A;
+			A.bPushPressed = true;
+			A.bPushReleased = true;
+			P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.2f), A, Dt);
+			for (int Extra = 0; Extra < 3; ++Extra) { P.Frame(Stick(FSkateVec2(1.f, 0.f), 0.2f), FSkateBallActionInput(), Dt); }
+			Pushes[Tap] = P.CountKind(ESkateImpulseKind::Push);
+			Speeds[Tap] = P.Ball.Vel.XY().Size();
+		}
+		R.bPassed = Pushes[0] == 1 && Pushes[1] == 1 && Pushes[2] == 1 && SkateMath::Abs(Speeds[1] - Speeds[0]) < 0.15f * Speeds[0];
+		R.Details = Fmt("tap: %d push, ball %.0f cm/s; tap again 0.08 s later: %d push, ball %.0f cm/s; tap at 0.5 s: %d push", Pushes[0], Speeds[0], Pushes[1], Speeds[1], Pushes[2]);
+		Out.push_back(R);
+	}
+
 	void TestPassCharge(std::vector<FSkateTestResult>& Out)
 	{
 		FSkateTestResult R{ "Contact.PassPowerScale" };
@@ -1646,6 +1710,7 @@ std::vector<FSkateTestResult> RunSkateCoreTests()
 	TestInputDeadZone(Results);
 	TestAccelerationAndFps(Results);
 	TestSprintStamina(Results);
+	TestStance(Results);
 	TestPartialStick(Results);
 	TestGlide(Results);
 	TestBrakeStop(Results);
@@ -1667,6 +1732,7 @@ std::vector<FSkateTestResult> RunSkateCoreTests()
 	TestDribbleTurnKeepsBallInertia(Results);
 	TestBrakeThenRecover(Results);
 	TestSingleImpulseUnderMashing(Results);
+	TestNoSecondTap(Results);
 	TestBodyBlock(Results);
 	TestDisabledInteraction(Results);
 	TestPossessionTrap(Results);

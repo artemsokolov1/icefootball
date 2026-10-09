@@ -16,12 +16,15 @@
 //   D-pad L / R  previous / next preset     1 / 2 / 3 (direct)
 //   D-pad Down   FPS cap 0/30/60/120        F3
 //   (keys only)  ball interaction on/off    F4
-//   LB           switch to the mate nearest the ball   Q
+//   LB           switch: next teammate by distance to the ball   Q
+//   Right stick  flick: switch to the teammate that way
+//   A            (own keeper holds the ball) throw it out where the stick points
 //
 // Up to three skaters on the team, all played by this controller: the input drives the ACTIVE skater,
 // the others get AI input (FSkateSkaterAI: chase, support, defend, mark; the same AI drives the opponents;
-// fetch a loose ball / hold the ball). Control switches with LB / Q, and automatically to the
-// teammate every pass is played to and to a teammate that just got the ball.
+// fetch a loose ball / hold the ball). Control switches with LB / Q (next by distance to the ball) or a flick of
+// the right stick (the teammate that way), and automatically to the teammate every pass is played to, to a
+// teammate that just got the ball and to the nearest defender when an opponent gets the ball.
 //
 // The stick is read raw; ASkateCharacter applies the radial dead zone and response curve,
 // then projects it onto the ice relative to the fixed camera yaw. No input smoothing.
@@ -105,6 +108,8 @@ private:
 	// Axis handlers
 	void OnStick(const FInputActionValue& Value);
 	void OnStickReleased(const FInputActionValue& Value);
+	void OnRightStick(const FInputActionValue& Value);
+	void OnRightStickReleased(const FInputActionValue& Value);
 	void OnKeys(const FInputActionValue& Value);
 	void OnKeysReleased(const FInputActionValue& Value);
 	void OnBrake(const FInputActionValue& Value);
@@ -136,6 +141,7 @@ private:
 	void OnSwitchSkater(const FInputActionValue& Value);
 
 	UInputAction* IA_Stick = nullptr;
+	UInputAction* IA_RightStick = nullptr;
 	UInputAction* IA_Keys = nullptr;
 	UInputAction* IA_Slow = nullptr;
 	UInputAction* IA_Brake = nullptr;
@@ -171,6 +177,11 @@ private:
 
 	TWeakObjectPtr<ASkateArena> CachedArena;
 	FVector2D StickValue = FVector2D::ZeroVector;
+	FVector2D RightStickValue = FVector2D::ZeroVector;
+	/** The right stick is past the flick threshold: one switch per flick. */
+	bool bRightFlicked = false;
+	/** The opponent that carried the ball last frame: a change of carrier lets the nearest defender take over. */
+	TWeakObjectPtr<const ASkateCharacter> LastOpponentCarrier;
 	FVector2D KeysValue = FVector2D::ZeroVector;
 	bool bSlowHeld = false;
 	float BrakeValue = 0.f;

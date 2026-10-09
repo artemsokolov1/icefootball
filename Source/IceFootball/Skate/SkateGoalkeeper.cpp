@@ -106,19 +106,31 @@ FSkateGoalFrame ASkateGoalkeeper::GoalFrame() const
 
 const ASkateCharacter* ASkateGoalkeeper::ThrowMate() const
 {
-	// Roll the ball out to the nearest skater of the keeper's own team.
-	const ASkateCharacter* Best = nullptr;
-	float BestDist = TNumericLimits<float>::Max();
-	for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
+	// The nearest skater of the keeper's own team; a player's aimed throw: the one within 60 deg of the aim, near ones
+	// first (the same rule as a skater's pass), the nearest when nobody is that way.
+	auto Pick = [this](bool bUseAim)
 	{
-		const float Dist = static_cast<float>(FVector::Dist2D(It->GetActorLocation(), GetActorLocation()));
-		if (It->GetTeam() == Team && Dist < BestDist)
+		const ASkateCharacter* Best = nullptr;
+		float BestScore = TNumericLimits<float>::Max();
+		for (TActorIterator<ASkateCharacter> It(GetWorld()); It; ++It)
 		{
-			Best = *It;
-			BestDist = Dist;
+			if (It->GetTeam() != Team)
+			{
+				continue;
+			}
+			const FVector2D To(It->GetActorLocation() - GetActorLocation());
+			const float Cos = bUseAim ? static_cast<float>(To.GetSafeNormal() | ThrowAim) : 1.f;
+			const float Score = static_cast<float>(To.Size()) * (1.5f - Cos);
+			if (Cos >= 0.5f && Score < BestScore)
+			{
+				Best = *It;
+				BestScore = Score;
+			}
 		}
-	}
-	return Best;
+		return Best;
+	};
+	const ASkateCharacter* Aimed = bThrowRequested && ThrowAim.SizeSquared() > 0.5f ? Pick(true) : nullptr;
+	return Aimed ? Aimed : Pick(false);
 }
 
 FVector2D ASkateGoalkeeper::ThrowTarget() const
@@ -145,6 +157,7 @@ void ASkateGoalkeeper::ResetKeeper()
 		}
 	}
 	FSkateKeeper::Reset(State);
+	bThrowRequested = false;
 	ApplyPose(FSkateKeeper::Pose(Tuning, GoalFrame(), State), 0.f);
 }
 
@@ -171,7 +184,12 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 		KeeperBall.TimeSinceImpulse = Ball->GetTimeSinceGameplayImpulse();
 	}
 	const FVector2D Target = ThrowTarget();
-	const FSkateKeeperTuning KT = Rink->GetKeeperTuning(Tuning, Team);
+	FSkateKeeperTuning KT = Rink->GetKeeperTuning(Tuning, Team);
+	if (bPlayerControlled)
+	{
+		// The player's keeper holds the ball until A (a moment at least, so the catch is seen), at most PlayerHoldTime.
+		KT.HoldTime = bThrowRequested ? FMath::Min(0.3f, KT.HoldTime) : KT.PlayerHoldTime;
+	}
 	const FSkateKeeperOutput Out = FSkateKeeper::Update(KT, Goal, KeeperBall, FSkateVec2(static_cast<float>(Target.X), static_cast<float>(Target.Y)),
 		DeltaSeconds, State);
 
@@ -195,6 +213,7 @@ void ASkateGoalkeeper::Tick(float DeltaSeconds)
 			{
 				const ASkateCharacter* Mate = ThrowMate();
 				Ball->ReleaseHold(ToVector(Out.BallPosition), ToVector(Out.BallVelocity), this, Team, Mate ? Mate->GetBallControl() : nullptr);
+				bThrowRequested = false;
 			}
 			break;
 		default:

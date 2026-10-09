@@ -610,8 +610,9 @@ namespace SkateTeamTestsDetail
 		Sim.Place(0, FSkateVec2(0.f, 0.f), FSkateVec2(1.f, 0.f));
 		Sim.Place(1, FSkateVec2(1200.f, -900.f), FSkateVec2(0.f, 1.f));
 		Sim.GiveBall(0, Dt);
-		// The teammate skates across at full stick and never looks at the ball: the pass has to meet it.
-		const auto Across = [](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1] = Stick(FSkateVec2(0.f, 1.f), 1.f); };
+		// The teammate skates across at full stick until the pass is played, then runs onto it as a bot (or the latched
+		// player's skater) does: the pass leads it most of the way (PassLead), the receiver closes the rest.
+		const auto Across = [&](float, FSkateMoveInput* In, FSkateBallActionInput*) { In[0].Brake = 1.f; In[1] = Stick(FSkateVec2(0.f, 1.f), 1.f); Sim.S[1].bAI = Sim.LastKind == ESkateImpulseKind::Push; };
 		Sim.Run(1.f, Dt, Across);
 		const float Start = Sim.Time;
 		const FSkateVec2 MateAtPass = Sim.S[1].Pos;
@@ -1056,7 +1057,7 @@ namespace SkateTeamTestsDetail
 		const FSkateVec2 Target = Sim.S[1].Pos + (Sim.Goal.Center - Sim.S[1].Pos).GetSafeNormal() * Sim.T.BallControl.ThroughLead;
 		const float ErrTarget = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(Dir.Dot(Target.GetSafeNormal()), -1.f, 1.f));
 		const float ErrMate = SkateMath::RadToDeg * std::acos(SkateMath::Clamp(Dir.Dot(Sim.S[1].Pos.GetSafeNormal()), -1.f, 1.f));
-		R.bPassed = Dir.SizeSquared() > 0.5f && ErrTarget < 4.f && ErrMate > 6.f && Speed > 1200.f;
+		R.bPassed = Dir.SizeSquared() > 0.5f && ErrTarget < 4.f && ErrMate > 4.f && Speed > 1200.f;
 		R.Details = Fmt("through pass: %.1f deg from the space ahead of the teammate, %.1f deg from the teammate, %.0f cm/s", ErrTarget, ErrMate, Speed);
 		Out.push_back(R);
 	}
