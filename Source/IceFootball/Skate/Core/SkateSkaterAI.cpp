@@ -265,17 +265,19 @@ FSkateSkaterDecision FSkateSkaterAI::Think(const FSkateSkaterView& View, const F
 		float MeetTime = 0.f;
 		bool bLed = false;
 		bool bFound = false;
+		// Led to me: the ball meets my own course if I keep going (steered a little, so a stick I eased off does not
+		// spoil it). That wins over any earlier point: a through ball from behind is run onto, never turned back for.
+		for (float T = 0.1f; !bLed && T <= ReceiveHorizon; T += 0.1f)
+		{
+			const FSkateVec2 At = SkateBallFlight::PositionAt(View.BallPos, View.BallVel, T, View.BallDamping, View.BallRollingResistance);
+			bLed = (At - (View.Pos + View.Vel * T)).Size() <= ReceiveLedRadius;
+			if (bLed) { Target = At; MeetTime = T; }
+		}
 		for (float T = 0.1f; !bLed && !bFound && T <= ReceiveHorizon; T += 0.1f)
 		{
 			const FSkateVec2 At = SkateBallFlight::PositionAt(View.BallPos, View.BallVel, T, View.BallDamping, View.BallRollingResistance);
-			// Led to me: the ball meets my own course if I keep going (steered a little, so a stick I eased off does not spoil it).
-			bLed = (At - (View.Pos + View.Vel * T)).Size() <= ReceiveLedRadius;
-			if (bLed || (At - View.Pos).Size() <= ReceiveMeetSpeed * T + ReceiveReach)
-			{
-				Target = At;
-				MeetTime = T;
-				bFound = !bLed;
-			}
+			bFound = (At - View.Pos).Size() <= ReceiveMeetSpeed * T + ReceiveReach;
+			if (bFound) { Target = At; MeetTime = T; }
 		}
 		const FSkateVec2 ToMeet = Target - View.Pos;
 		if ((bLed || bFound) && ToMeet.Size() > 40.f)

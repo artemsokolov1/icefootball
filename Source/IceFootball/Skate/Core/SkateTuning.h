@@ -467,12 +467,16 @@ struct FSkateBallControlTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0", ClampMax = "3"))
 	float OneTouchBufferTime = 1.5f;
 
-	/** Through pass (Y): played this far (cm) ahead of the teammate towards the goal, arriving at ThroughArriveSpeed. */
+	/** Through pass (Y): played this far (cm) ahead of the teammate towards the goal, plus the way it runs while the ball
+	 *  travels (the full run: the ball arrives slowly and waits, so over-leading costs nothing), arriving there at
+	 *  ThroughArriveSpeed and rolling to a stop a few metres on. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float ThroughLead = 500.f;
+	float ThroughLead = 300.f;
 
+	/** Ball speed (cm/s) at the through-pass point: slow enough to roll to a stop within ~4 m (the receiver runs onto a
+	 *  ball that waits for it, never one that outruns it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))
-	float ThroughArriveSpeed = 650.f;
+	float ThroughArriveSpeed = 300.f;
 
 	/** Pass ball speed (cm/s) at full charge. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball|Push", meta = (ClampMin = "0"))

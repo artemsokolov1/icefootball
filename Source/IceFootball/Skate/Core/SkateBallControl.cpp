@@ -659,6 +659,24 @@ FSkateBallImpulse FSkateBallControl::MakePush(const FSkateBallControlTuning& Tun
 	return Impulse;
 }
 
+FSkateVec2 FSkateBallControl::ThroughTarget(const FSkateBallControlTuning& Tuning, const FSkateVec2& BallPos, const FSkateVec2& MatePos,
+	const FSkateVec2& MateVel, const FSkateVec2& GoalCentre, float BallDamping, float BallRollingResistance)
+{
+	const FSkateVec2 Space = MatePos + (GoalCentre - MatePos).GetSafeNormal() * Tuning.ThroughLead;
+	const float MaxSpeed = SkateMath::Max(Tuning.PassMaxSpeed, Tuning.PushSpeed);
+	// The run during the flight lengthens the flight: a few rounds settle it (a runner the ball cannot outrun gets a long one).
+	FSkateVec2 Target = Space;
+	for (int Round = 0; Round < 3; ++Round)
+	{
+		const float Dist = (Target - BallPos).Size();
+		const float Launch = SkateBallFlight::SpeedFor(Dist, Tuning.ThroughArriveSpeed, BallDamping, BallRollingResistance, MaxSpeed);
+		float Flight = SkateBallFlight::TimeFor(Launch, Dist, BallDamping, BallRollingResistance);
+		if (Flight < 0.f) { Flight = SkateBallFlight::StopTime(Launch, BallDamping, BallRollingResistance); }
+		Target = Space + MateVel * Flight;
+	}
+	return Target;
+}
+
 FSkateBallImpulse FSkateBallControl::MakeThroughPass(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query)
 {
 	if (!Query.bThroughTargetValid)

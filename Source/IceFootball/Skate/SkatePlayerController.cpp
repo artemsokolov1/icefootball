@@ -485,7 +485,6 @@ void ASkatePlayerController::UpdateThroughTargets()
 	const FSkateGoalFrame Goal = Arena->GetGoalFrame(Arena->GetAttackGoal(0));
 	const FVector2D GoalCentre(Goal.Center.X, Goal.Center.Y);
 	const FVector2D Half = Arena->GetLayout().RinkSize * 0.5f;
-	const float Lead = Team.Num() > 0 && Team[0].IsValid() ? Team[0]->GetActiveTuning().BallControl.ThroughLead : 700.f;
 	for (int32 Index = 0; Index < Team.Num(); ++Index)
 	{
 		ASkateCharacter* Member = Team[Index].Get();
@@ -499,11 +498,12 @@ void ASkatePlayerController::UpdateThroughTargets()
 			Member->GetBallControl()->SetThroughTarget(false, FVector2D::ZeroVector);
 			continue;
 		}
-		const FVector2D MatePos(Mate->GetActorLocation());
-		const FVector2D Dir = (GoalCentre - MatePos).GetSafeNormal();
-		// A standing teammate gets the ball closer (it cannot run 7 m in time); a running one gets the full lead.
-		const float Pace = FMath::Clamp(static_cast<float>(Mate->GetVelocity().Size2D()) / FMath::Max(Mate->GetActiveTuning().Movement.MaxSpeed, 1.f), 0.f, 1.f);
-		FVector2D Target = MatePos + Dir * Lead * (0.4f + 0.6f * Pace);
+		const auto V2 = [](const FVector& V) { return FSkateVec2(static_cast<float>(V.X), static_cast<float>(V.Y)); };
+		const FSkateTuning& Tuning = Member->GetActiveTuning();
+		const FSkateVec2 At = FSkateBallControl::ThroughTarget(Tuning.BallControl, V2(Member->GetActorLocation()), V2(Mate->GetActorLocation()),
+			V2(Mate->GetVelocity()), FSkateVec2(static_cast<float>(GoalCentre.X), static_cast<float>(GoalCentre.Y)),
+			Tuning.BallPhysics.LinearDamping, Tuning.BallPhysics.RollingResistance);
+		FVector2D Target(At.X, At.Y);
 		Target.X = FMath::Clamp(Target.X, -Half.X + 200.f, Half.X - 200.f);
 		Target.Y = FMath::Clamp(Target.Y, -Half.Y + 200.f, Half.Y - 200.f);
 		const float Along = Goal.Along(FSkateVec2(static_cast<float>(Target.X), static_cast<float>(Target.Y)));

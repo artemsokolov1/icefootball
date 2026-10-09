@@ -302,6 +302,11 @@ public:
 	/** Minimum time between any two impulses (s). Hard guarantee against double hits. */
 	static constexpr float MinImpulseGap = 0.05f;
 
+	/** Where a through pass goes: ThroughLead ahead of the teammate towards the goal, plus the way it runs while the
+	 *  ball travels there (the ball arrives at ThroughArriveSpeed and waits). Not clamped to the rink. */
+	static FSkateVec2 ThroughTarget(const FSkateBallControlTuning& Tuning, const FSkateVec2& BallPos, const FSkateVec2& MatePos,
+		const FSkateVec2& MateVel, const FSkateVec2& GoalCentre, float BallDamping, float BallRollingResistance);
+
 private:
 	static FSkateBallImpulse MakeTouch(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query);
 	static FSkateBallImpulse MakePush(const FSkateBallControlTuning& Tuning, const FSkateContactQuery& Query, float Power);
