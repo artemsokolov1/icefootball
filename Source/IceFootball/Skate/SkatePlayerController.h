@@ -187,6 +187,8 @@ private:
 	int32 SwitchRank = 0;
 	/** The own keeper holds the ball and the player drives it (stick, A, X); the skaters are all AI meanwhile. */
 	bool bKeeperControl = false;
+	/** Every face-off starts with the centre (slot 0) under the player's control. */
+	bool bWasFaceOff = false;
 	FVector2D KeysValue = FVector2D::ZeroVector;
 	bool bSlowHeld = false;
 	float BrakeValue = 0.f;

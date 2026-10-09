@@ -130,7 +130,7 @@ struct FSkateMovementTuning
 
 	/** Cap on how fast grip can bend the velocity (cm/s^2). At speed v, minimum arc radius = v^2 / this. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "100"))
-	float MaxLateralAccel = 1700.f;
+	float MaxLateralAccel = 2300.f;
 
 	/** Fraction of the lateral speed removed by grip that is redirected along the blade (carving keeps speed).
 	 *  The rest is scrubbed (skid). Falls off with slip angle, see SkidSlipAngle. */
@@ -147,7 +147,7 @@ struct FSkateMovementTuning
 
 	/** Heading turn rate (deg/s) at TurnRateSpeedRef and above. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "30"))
-	float TurnRateHighSpeed = 200.f;
+	float TurnRateHighSpeed = 280.f;
 
 	/** Speed (cm/s) at which the turn rate reaches TurnRateHighSpeed (smoothstep blend from 0). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Turning", meta = (ClampMin = "10"))
@@ -170,7 +170,7 @@ struct FSkateMovementTuning
 	/** Stick pointing against the travel direction with dot(stick, velocity) below this starts a "reverse stop":
 	 *  the skater first brakes (no instant velocity flip), then accelerates the other way. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "-1", ClampMax = "0"))
-	float ReverseIntentDot = -0.45f;
+	float ReverseIntentDot = -0.1f;
 
 	/** Reverse stop only triggers above this speed (cm/s); below it the skater simply pivots. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0"))
@@ -185,8 +185,13 @@ struct FSkateMovementTuning
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "90"))
 	float ReverseTurnRate = 1100.f;
 
-	/** A reverse stop needs a FLICK: the stick must jump (or come from neutral) into the backward sector
-	 *  within this time (s). Sweeping the stick around the rim (circling) is a turn, never a stop. */
+	/** A stick HELD in the backward sector this long (s) starts a reverse stop even when it was swept there (the
+	 *  stick pulled back means "turn round", not "carve a wide arc"); a flick (below) starts it at once. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Braking", meta = (ClampMin = "0"))
+	float ReverseHoldTime = 0.05f;
+
+	/** A flick (the stick jumps or comes from neutral into the backward sector within this time, s) starts the
+	 *  reverse stop at once, without the hold. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Brake", meta = (ClampMin = "0", ClampMax = "1"))
 	float ReverseFlickWindow = 0.2f;
 

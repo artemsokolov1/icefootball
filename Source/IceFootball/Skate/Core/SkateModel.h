@@ -56,8 +56,10 @@ struct FSkateMoveState
 	FSkateVec2 PrevStickDir;
 	bool bPrevStick = false;
 	float TimeSinceStickFlick = 100.f;
-	/** The last flick landed in the backward sector (only such a flick may start a reverse stop). */
+	/** The last flick landed in the backward sector (such a flick starts a reverse stop at once). */
 	bool bFlickIntoBack = false;
+	/** Seconds the stick has been held in the backward sector (a hold of ReverseHoldTime starts a reverse stop). */
+	float TimeStickBack = 0.f;
 	float TurnSign = 0.f;
 	/** Smoothed angular speed of the stick itself (rad/s, + = towards the right). */
 	float StickSpin = 0.f;

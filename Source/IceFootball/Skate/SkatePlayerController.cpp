@@ -419,6 +419,13 @@ void ASkatePlayerController::UpdateAutoSwitch()
 		}
 	}
 	// An opponent's ball never switches by itself: in defence the player picks the skater (LB / the right stick).
+	// A face-off: the centre takes the draw.
+	const bool bFaceOff = CachedArena.IsValid() && CachedArena->IsFaceOff();
+	if (bFaceOff && !bWasFaceOff && Team.Num() > 0)
+	{
+		Target = 0;
+	}
+	bWasFaceOff = bFaceOff;
 	if (Target != INDEX_NONE)
 	{
 		SwitchTo(Target);

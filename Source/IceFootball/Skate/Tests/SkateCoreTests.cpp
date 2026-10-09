@@ -1470,64 +1470,35 @@ namespace SkateCoreTestsDetail
 		Out.push_back(R);
 	}
 
-	void TestStickCircling(std::vector<FSkateTestResult>& Out)
+	void TestStickHeldBackStops(std::vector<FSkateTestResult>& Out)
 	{
-		for (ESkatePreset Preset : AllPresets)
-		{
-			const FSkateTuning T = SkateTuningPresets::Make(Preset);
-			FSkateTestResult R{ Fmt("Move.StickCircling[%s]", SkateTuningPresets::Name(Preset)) };
-			bool bOk = true;
-			std::string Info;
-			for (float Rate : { 180.f, 360.f, 720.f })
-			{
-				float Avg[2] = { 0.f, 0.f };
-				int ReverseFrames = 0;
-				const float Fps[2] = { 30.f, 120.f };
-				for (int F = 0; F < 2; ++F)
-				{
-					FSkateSim Sim;
-					Sim.State.Velocity = FSkateVec2(T.Movement.MaxSpeed, 0.f);
-					float Sum = 0.f;
-					int N = 0;
-					RunUntil(Sim, T.Movement, Fps[F], 6.f,
-						[Rate](float Time, const FSkateMoveState&) { return Stick(FSkateVec2::FromYaw(Rate * SkateMath::DegToRad * Time), 1.f); },
-						[](const FSkateSim&) { return false; }, nullptr,
-						[&](const FSkateSim& S, float) { if (S.Time > 2.f) { Sum += S.State.Velocity.Size(); ++N; ReverseFrames += S.State.bReverseStop ? 1 : 0; } });
-					Avg[F] = Sum / SkateMath::Max(static_cast<float>(N), 1.f);
-				}
-				const bool bRateOk = Avg[1] > 0.85f * T.Movement.MaxSpeed && ReverseFrames == 0 && RelDiff(Avg[0], Avg[1]) < 0.05f;
-				bOk &= bRateOk;
-				Info += Fmt("%.0f deg/s: avg %.0f cm/s (30fps %.0f), stops %d; ", Rate, Avg[1], Avg[0], ReverseFrames);
-			}
-			R.bPassed = bOk;
-			R.Details = Fmt("stick circled at full deflection from top speed %.0f: %s", T.Movement.MaxSpeed, Info.c_str());
-			Out.push_back(R);
-		}
-	}
-
-	void TestFlickVsSweep(std::vector<FSkateTestResult>& Out)
-	{
-		FSkateTestResult R{ "Move.FlickStopsSweepTurns" };
+		FSkateTestResult R{ "Move.StickHeldBackStops" };
 		const FSkateTuning T;
-		auto Run = [&](float SweepTime)
+		// The stick swept round to the back over 0.5 s (no flick) and held there: the skater turns round quickly without
+		// wandering far sideways. At top speed the tightened carve does it; at sprint speed (a 4 m arc otherwise) the
+		// held stick starts a reverse stop.
+		bool bOk = true;
+		std::string Info;
+		for (int Sprint = 0; Sprint < 2; ++Sprint)
 		{
+			const float Speed = Sprint ? T.Movement.BoostMaxSpeed : T.Movement.MaxSpeed;
 			FSkateSim Sim;
-			Sim.State.Velocity = FSkateVec2(T.Movement.MaxSpeed, 0.f);
+			Sim.State.Velocity = FSkateVec2(Speed, 0.f);
 			bool bStop = false;
-			float MinSpeed = 1e9f;
-			RunUntil(Sim, T.Movement, 60.f, 2.f, [SweepTime](float Time, const FSkateMoveState&)
+			float MaxY = 0.f;
+			const float Time = RunUntil(Sim, T.Movement, 60.f, 3.f, [Sprint](float Time, const FSkateMoveState&)
 			{
-				const float U = SweepTime > 0.f ? SkateMath::Clamp01(Time / SweepTime) : 1.f;
-				return Stick(FSkateVec2::FromYaw(U * SkateMath::Pi * 0.999f), 1.f);
-			}, [](const FSkateSim&) { return false; }, nullptr,
-				[&](const FSkateSim& S, float) { bStop |= S.State.bReverseStop; MinSpeed = SkateMath::Min(MinSpeed, S.State.Velocity.Size()); });
-			return std::make_pair(bStop, MinSpeed);
-		};
-		const auto Flick = Run(0.f);
-		const auto Sweep = Run(0.6f);
-		R.bPassed = Flick.first && !Sweep.first && Sweep.second > 0.8f * T.Movement.MaxSpeed;
-		R.Details = Fmt("stick flicked to the back: reverse stop=%d (slowest %.0f cm/s) | stick swept to the back over 0.6 s: reverse stop=%d, slowest %.0f cm/s (a carved U-turn)",
-			Flick.first ? 1 : 0, Flick.second, Sweep.first ? 1 : 0, Sweep.second);
+				const float U = SkateMath::Clamp01(Time / 0.5f);
+				return Stick(FSkateVec2::FromYaw(U * SkateMath::Pi * 0.999f), 1.f, 0.f, Sprint ? 1.f : 0.f);
+			}, [&](const FSkateSim& S) { return S.State.Velocity.X <= -0.9f * Speed; }, nullptr,
+				[&](const FSkateSim& S, float) { bStop |= S.State.bReverseStop; MaxY = SkateMath::Max(MaxY, SkateMath::Abs(S.Pos.Y)); });
+			const bool bCase = Time > 0.f && Time < 2.6f && MaxY < (Sprint ? 500.f : 400.f) && (!Sprint || bStop);
+			bOk &= bCase;
+			Info += Fmt("from %.0f cm/s, stick swept to the back over 0.5 s: reverse stop=%d, the other way at 90%% after %.2f s, %.0f cm off the line%s; ",
+				Speed, bStop ? 1 : 0, Time, MaxY, bCase ? "" : " FAIL");
+		}
+		R.bPassed = bOk;
+		R.Details = Info;
 		Out.push_back(R);
 	}
 
@@ -1538,7 +1509,8 @@ namespace SkateCoreTestsDetail
 		RunCarry(P, 2.f, 60.f, [](float) { return Stick(FSkateVec2(1.f, 0.f), 1.f); });
 		const FCarryStats S = RunCarry(P, 6.f, 60.f, [](float Time) { return Stick(FSkateVec2::FromYaw(2.f * SkateMath::Pi * Time), 1.f); });
 		const float BodyLimit = P.T.BallControl.BodyRadius + P.T.BallPhysics.Radius * 0.5f - 1.f;
-		R.bPassed = S.Losses == 0 && S.MinBodyDistance >= BodyLimit && S.MaxAngleDeg < 45.f && P.Skater.State.Velocity.Size() > 0.8f * P.T.Movement.MaxSpeed;
+		// The stick passing through the back sector now stops and turns the skater (no speed requirement): the ball must stay.
+		R.bPassed = S.Losses == 0 && S.MinBodyDistance >= BodyLimit && S.MaxAngleDeg < 45.f;
 		R.Details = Fmt("6 s stick circling (1 turn/s) with the ball: losses %d, max angle heading->ball %.1f deg, closest to body %.0f cm, speed %.0f cm/s",
 			S.Losses, S.MaxAngleDeg, S.MinBodyDistance, P.Skater.State.Velocity.Size());
 		Out.push_back(R);
@@ -1691,8 +1663,7 @@ std::vector<FSkateTestResult> RunSkateCoreTests()
 	TestHighSpeedTurn(Results);
 	TestLowSpeedPivot(Results);
 	TestReverseNoInstantFlip(Results);
-	TestStickCircling(Results);
-	TestFlickVsSweep(Results);
+	TestStickHeldBackStops(Results);
 	TestCourseFpsIndependence(Results);
 	TestContactGating(Results);
 	TestNoActionOutOfReach(Results);

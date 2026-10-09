@@ -175,11 +175,14 @@ void FSkateModel::SubStep(const FSkateMovementTuning& Tuning, const FSkateMoveIn
 		State.PrevStickDir = StickDir;
 	}
 	State.bPrevStick = bHasStick;
+	State.TimeStickBack = bHasStick && StickVsTravel < Tuning.ReverseIntentDot ? State.TimeStickBack + H : 0.f;
 
 	if (!State.bReverseStop)
 	{
+		// A flick into the back sector stops at once; a stick swept there and held does too after ReverseHoldTime.
+		const bool bFlick = State.bFlickIntoBack && State.TimeSinceStickFlick <= Tuning.ReverseFlickWindow;
 		State.bReverseStop = bHasStick && !Input.bBackward && Speed > Tuning.ReverseMinSpeed && StickVsTravel < Tuning.ReverseIntentDot
-			&& State.bFlickIntoBack && State.TimeSinceStickFlick <= Tuning.ReverseFlickWindow;
+			&& (bFlick || State.TimeStickBack >= Tuning.ReverseHoldTime);
 	}
 	else
 	{
